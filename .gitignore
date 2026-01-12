@@ -1,0 +1,25 @@
+# Виртуальное окружение
+.venv/
+venv/
+env/
+
+# Переменные окружения
+.env
+
+# Скачанные файлы
+downloaded_files/
+
+# Метаданные синхронизации
+sync_metadata.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
