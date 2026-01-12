@@ -76,14 +76,18 @@ class YandexDiskSyncer:
             print(f"Ошибка при получении ресурсов: {e}")
             return None
 
-    def get_all_files_recursive(self, public_key, relative_path=""):
+    def get_all_files_recursive(self, public_key, relative_path="", folders_set=None):
         """
         Рекурсивно получает все файлы из папки
 
         :param public_key: Публичная ссылка на ресурс
         :param relative_path: Относительный путь для локального сохранения
+        :param folders_set: Множество для сбора всех найденных папок
         :return: Список всех файлов
         """
+        if folders_set is None:
+            folders_set = set()
+
         files_list = []
 
         data = self.get_public_resources(public_key)
@@ -101,11 +105,13 @@ class YandexDiskSyncer:
                 if item_type == 'dir':
                     # Рекурсивно обходим папку используя её public_url
                     print(f"Обход папки: {item_path}")
+                    folders_set.add(item_path)  # Добавляем папку в список
                     item_public_url = item.get('public_url', '')
                     if item_public_url:
                         nested_files = self.get_all_files_recursive(
                             public_key=item_public_url,
-                            relative_path=item_path
+                            relative_path=item_path,
+                            folders_set=folders_set
                         )
                         files_list.extend(nested_files)
                 else:
@@ -247,21 +253,31 @@ class YandexDiskSyncer:
         print(f"Начало синхронизации с: {self.public_url}")
         print(f"Директория для скачивания: {self.download_dir.absolute()}\n")
 
-        # Получаем список всех файлов
+        # Получаем список всех файлов и папок
         print("Получение списка файлов...")
-        all_files = self.get_all_files_recursive(self.public_url)
+        folders_set = set()
+        all_files = self.get_all_files_recursive(self.public_url, folders_set=folders_set)
 
-        if not all_files:
+        if not all_files and not folders_set:
             print("Файлы не найдены или произошла ошибка")
             return
 
-        print(f"\nНайдено файлов: {len(all_files)}\n")
+        print(f"\nНайдено файлов: {len(all_files)}")
+        print(f"Найдено папок: {len(folders_set)}\n")
+
+        # Создаем все папки, даже пустые
+        print("Создание структуры папок...")
+        for folder_path in sorted(folders_set):
+            folder_full_path = self.download_dir / folder_path
+            folder_full_path.mkdir(parents=True, exist_ok=True)
+        print(f"Создано папок: {len(folders_set)}\n")
 
         # Статистика
         downloaded_count = 0
         updated_count = 0
         skipped_count = 0
         video_count = 0
+        failed_files = []
 
         # Обрабатываем каждый файл
         for file_info in all_files:
@@ -274,7 +290,8 @@ class YandexDiskSyncer:
                 # Определяем, это новый файл или обновление
                 is_new = file_info['path'] not in self.metadata
 
-                if self.download_file(file_info):
+                download_result = self.download_file(file_info)
+                if download_result:
                     # Обновляем метаданные
                     self.metadata[file_info['path']] = {
                         'size': file_info['size'],
@@ -290,12 +307,22 @@ class YandexDiskSyncer:
                         downloaded_count += 1
                     else:
                         updated_count += 1
+                else:
+                    # Файл не удалось скачать
+                    failed_files.append(file_info['path'])
             else:
                 skipped_count += 1
                 print(f"Пропущен (не изменен): {file_info['path']}")
 
         # Сохраняем метаданные
         self.save_metadata()
+
+        # Сохраняем список неудачных файлов
+        if failed_files:
+            failed_log = Path('failed_downloads.txt')
+            with open(failed_log, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(failed_files))
+            print(f"\nСписок неудачно скачанных файлов сохранен в: {failed_log.absolute()}")
 
         # Итоговая статистика
         print(f"\n{'='*60}")
@@ -305,6 +332,7 @@ class YandexDiskSyncer:
         print(f"Обновленных файлов: {updated_count}")
         print(f"Видео (созданы пустые файлы): {video_count}")
         print(f"Пропущено (без изменений): {skipped_count}")
+        print(f"Не удалось скачать: {len(failed_files)}")
         print(f"Всего файлов: {len(all_files)}")
 
     @staticmethod
