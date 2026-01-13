@@ -5,6 +5,7 @@ import requests
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 # Устанавливаем кодировку для консоли
 if sys.platform == 'win32':
@@ -19,20 +20,23 @@ load_dotenv()
 DOWNLOAD_DIR = "downloaded_files"
 METADATA_FILE = "sync_metadata.json"
 TOKEN = os.getenv('Token')
+LARGE_FILE_SIZE = 300 * 1024 * 1024  # 300 МБ в байтах
 
 
 class YandexDiskSyncer:
-    def __init__(self, public_url, download_dir=DOWNLOAD_DIR):
+    def __init__(self, public_url, download_dir=DOWNLOAD_DIR, skip_large_files=False):
         """
         Инициализация синхронизатора Яндекс Диска
 
         :param public_url: Публичная ссылка на Яндекс Диск
         :param download_dir: Директория для скачивания файлов
+        :param skip_large_files: Пропускать файлы больше 300 МБ (создавать пустые файлы)
         """
         self.public_url = public_url
         self.download_dir = Path(download_dir)
         self.metadata_file = Path(METADATA_FILE)
         self.token = TOKEN
+        self.skip_large_files = skip_large_files
         self.metadata = self.load_metadata()
 
         # Создаем директорию для загрузки, если её нет
@@ -131,7 +135,7 @@ class YandexDiskSyncer:
 
     def download_file(self, file_info):
         """
-        Скачивает файл с Яндекс Диска (или создает пустой файл для видео)
+        Скачивает файл с Яндекс Диска (или создает пустой файл для видео/больших файлов)
 
         :param file_info: Информация о файле
         :return: True если файл скачан успешно
@@ -154,6 +158,17 @@ class YandexDiskSyncer:
                 print(f"Ошибка при создании пустого файла {file_info['path']}: {e}")
                 return False
 
+        # Проверяем размер файла, если включен флаг пропуска больших файлов
+        if self.skip_large_files and file_info['size'] > LARGE_FILE_SIZE:
+            # Создаем пустой файл для больших файлов
+            try:
+                local_path.touch()
+                print(f"Пропущено (большой файл, создан пустой файл): {file_info['path']} ({self.format_size(file_info['size'])})")
+                return True
+            except Exception as e:
+                print(f"Ошибка при создании пустого файла {file_info['path']}: {e}")
+                return False
+
         # Для обычных файлов - скачиваем
         # Проверяем, есть ли прямая ссылка на файл
         download_url = file_info.get('file')
@@ -171,10 +186,22 @@ class YandexDiskSyncer:
             response = requests.get(download_url, stream=True)
             response.raise_for_status()
 
-            # Сохраняем файл
+            # Получаем размер файла
+            total_size = int(response.headers.get('content-length', 0))
+
+            # Сохраняем файл с прогресс-баром
             with open(local_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                with tqdm(
+                    total=total_size,
+                    unit='B',
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    desc=file_info['name'][:30],
+                    leave=False
+                ) as pbar:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        pbar.update(len(chunk))
 
             print(f"Скачан: {file_info['path']} ({self.format_size(file_info['size'])})")
             return True
@@ -277,14 +304,17 @@ class YandexDiskSyncer:
         updated_count = 0
         skipped_count = 0
         video_count = 0
+        large_file_count = 0
         failed_files = []
 
-        # Обрабатываем каждый файл
-        for file_info in all_files:
+        # Обрабатываем каждый файл с прогресс-баром
+        print("Обработка файлов...")
+        for file_info in tqdm(all_files, desc="Общий прогресс", unit="файл"):
             # Проверяем, является ли файл видео
             video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.mpg', '.mpeg']
             file_ext = Path(file_info['name']).suffix.lower()
             is_video = file_ext in video_extensions
+            is_large = self.skip_large_files and file_info['size'] > LARGE_FILE_SIZE
 
             if self.should_download(file_info):
                 # Определяем, это новый файл или обновление
@@ -298,11 +328,14 @@ class YandexDiskSyncer:
                         'modified': file_info['modified'],
                         'md5': file_info['md5'],
                         'last_sync': datetime.now().isoformat(),
-                        'is_video': is_video
+                        'is_video': is_video,
+                        'is_large': is_large
                     }
 
                     if is_video:
                         video_count += 1
+                    elif is_large:
+                        large_file_count += 1
                     elif is_new:
                         downloaded_count += 1
                     else:
@@ -331,6 +364,7 @@ class YandexDiskSyncer:
         print(f"Новых файлов скачано: {downloaded_count}")
         print(f"Обновленных файлов: {updated_count}")
         print(f"Видео (созданы пустые файлы): {video_count}")
+        print(f"Большие файлы >300МБ (созданы пустые файлы): {large_file_count}")
         print(f"Пропущено (без изменений): {skipped_count}")
         print(f"Не удалось скачать: {len(failed_files)}")
         print(f"Всего файлов: {len(all_files)}")
@@ -355,7 +389,8 @@ def main():
     public_url = "https://disk.yandex.ru/d/_JeaJNmm6UeQVA"
 
     # Создаем синхронизатор и запускаем синхронизацию
-    syncer = YandexDiskSyncer(public_url)
+    # Установите skip_large_files=True, чтобы пропускать файлы больше 300 МБ
+    syncer = YandexDiskSyncer(public_url, skip_large_files=True)
     syncer.sync()
 
 
