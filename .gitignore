@@ -13,6 +13,9 @@ downloaded_files/
 sync_metadata.json
 failed_downloads.txt
 
+# Логи
+logs/
+
 # Python cache
 __pycache__/
 *.py[cod]
