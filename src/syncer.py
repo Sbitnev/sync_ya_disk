@@ -2,6 +2,7 @@
 Синхронизатор личного диска пользователя Яндекс.Диска
 """
 import time
+import json
 import requests
 from pathlib import Path
 from datetime import datetime
@@ -47,6 +48,17 @@ class YandexDiskUserSyncer:
         # Создаем директорию для загрузки
         self.download_dir.mkdir(exist_ok=True)
 
+        # Единая HTTP-сессия для переиспользования соединений
+        self.session = requests.Session()
+        # Настройка connection pooling для оптимизации
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=0  # Ретраи обрабатываем вручную в _request_with_retry
+        )
+        self.session.mount('https://', adapter)
+        self.session.mount('http://', adapter)
+
         # Конвертеры для Markdown
         self.markdown_dir = Path(config.MARKDOWN_OUTPUT_DIR)
         if config.ENABLE_MARKDOWN_CONVERSION:
@@ -91,7 +103,7 @@ class YandexDiskUserSyncer:
 
         for attempt in range(max_retries):
             try:
-                response = getattr(requests, method)(url, timeout=config.REQUEST_TIMEOUT, **kwargs)
+                response = getattr(self.session, method)(url, timeout=config.REQUEST_TIMEOUT, **kwargs)
                 response.raise_for_status()
                 return response
             except requests.exceptions.ConnectionError as e:
@@ -123,27 +135,66 @@ class YandexDiskUserSyncer:
                     return None
         return None
 
-    def get_user_resources(self, path):
+    def get_user_resources(self, path, limit=1000):
         """
-        Получает ресурсы личного диска пользователя
+        Получает ВСЕ ресурсы личного диска пользователя с поддержкой пагинации
 
         :param path: Путь к папке на диске (например, "/Клиенты")
-        :return: Данные ресурса
+        :param limit: Количество элементов на страницу (max 1000)
+        :return: Данные ресурса со всеми элементами
         """
         url = "https://cloud-api.yandex.net/v1/disk/resources"
         headers = {"Authorization": f"OAuth {self.token_manager.token}"}
-        params = {"path": path, "limit": 1000}
 
-        response = self._request_with_retry('get', url, headers=headers, params=params)
-        if response:
-            return response.json()
-        else:
-            logger.error(f"Не удалось получить ресурсы для: {path}")
-            return None
+        all_items = []
+        offset = 0
+        total_fetched = 0
+
+        # Пагинация для получения всех элементов
+        while True:
+            params = {
+                "path": path,
+                "limit": limit,
+                "offset": offset
+            }
+
+            response = self._request_with_retry('get', url, headers=headers, params=params)
+            if not response:
+                logger.error(f"Не удалось получить ресурсы для: {path}")
+                break
+
+            data = response.json()
+
+            # Получаем элементы из ответа
+            if '_embedded' in data and 'items' in data['_embedded']:
+                items = data['_embedded']['items']
+                all_items.extend(items)
+                total_fetched += len(items)
+
+                # Если получили меньше limit, это последняя страница
+                if len(items) < limit:
+                    if offset > 0:  # Если была пагинация
+                        logger.debug(f"   Получено {total_fetched} элементов (пагинация)")
+                    break
+
+                offset += limit
+            else:
+                break
+
+        # Возвращаем в том же формате, но со всеми элементами
+        if all_items:
+            return {
+                '_embedded': {'items': all_items},
+                'type': 'dir',
+                'name': data.get('name', ''),
+                'path': path
+            }
+
+        return None
 
     def get_all_files_recursive(self, path, relative_path="", folders_set=None, _processed_folders=None):
         """
-        Рекурсивно получает все файлы из папки
+        Рекурсивно получает все файлы из папки с параллельной обработкой вложенных папок
 
         :param path: Путь к папке на диске
         :param relative_path: Относительный путь для локального сохранения
@@ -155,14 +206,15 @@ class YandexDiskUserSyncer:
             folders_set = set()
 
         if _processed_folders is None:
-            _processed_folders = {'count': 0}
+            _processed_folders = {'count': 0, 'lock': Lock()}
 
         files_list = []
 
         if relative_path:
-            _processed_folders['count'] += 1
-            if _processed_folders['count'] % 10 == 0:
-                logger.info(f"   Обработано папок: {_processed_folders['count']}")
+            with _processed_folders['lock']:
+                _processed_folders['count'] += 1
+                if _processed_folders['count'] % 10 == 0:
+                    logger.info(f"   Обработано папок: {_processed_folders['count']}")
 
         logger.debug(f"Получение содержимого: {path}")
         data = self.get_user_resources(path)
@@ -174,6 +226,9 @@ class YandexDiskUserSyncer:
         if '_embedded' in data and 'items' in data['_embedded']:
             items = data['_embedded']['items']
 
+            # Разделяем файлы и папки
+            folders_to_process = []
+
             for item in items:
                 item_name = item['name']
                 item_type = item['type']
@@ -181,15 +236,8 @@ class YandexDiskUserSyncer:
                 full_path = f"{path}/{item_name}" if path != "/" else f"/{item_name}"
 
                 if item_type == 'dir':
-                    # Рекурсивно обходим папку
                     folders_set.add(item_path)
-                    nested_files = self.get_all_files_recursive(
-                        path=full_path,
-                        relative_path=item_path,
-                        folders_set=folders_set,
-                        _processed_folders=_processed_folders
-                    )
-                    files_list.extend(nested_files)
+                    folders_to_process.append((full_path, item_path))
                 else:
                     # Добавляем файл в список
                     file_info = {
@@ -202,7 +250,87 @@ class YandexDiskUserSyncer:
                     }
                     files_list.append(file_info)
 
+            # Параллельная обработка вложенных папок
+            if folders_to_process:
+                # Используем ThreadPoolExecutor для параллельной обработки
+                with ThreadPoolExecutor(max_workers=config.FOLDER_SCAN_WORKERS) as executor:
+                    futures = {
+                        executor.submit(
+                            self.get_all_files_recursive,
+                            folder_path,
+                            folder_rel_path,
+                            folders_set,
+                            _processed_folders
+                        ): folder_path
+                        for folder_path, folder_rel_path in folders_to_process
+                    }
+
+                    for future in as_completed(futures):
+                        try:
+                            nested_files = future.result()
+                            files_list.extend(nested_files)
+                        except Exception as e:
+                            folder_path = futures[future]
+                            logger.error(f"Ошибка при обработке папки {folder_path}: {e}")
+
         return files_list
+
+    def _get_cache_path(self):
+        """Возвращает путь к файлу кэша"""
+        cache_dir = Path(config.METADATA_DIR)
+        cache_dir.mkdir(exist_ok=True)
+        return cache_dir / "files_list_cache.json"
+
+    def _load_cached_files_list(self, max_age_seconds=300):
+        """
+        Загружает список файлов из кэша если он свежий
+
+        :param max_age_seconds: Максимальный возраст кэша в секундах (по умолчанию 5 минут)
+        :return: Кэшированный список файлов или None
+        """
+        cache_path = self._get_cache_path()
+
+        if not cache_path.exists():
+            return None
+
+        # Проверяем возраст кэша
+        cache_age = time.time() - cache_path.stat().st_mtime
+        if cache_age > max_age_seconds:
+            logger.debug(f"Кэш устарел ({cache_age:.0f} сек > {max_age_seconds} сек)")
+            return None
+
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+                logger.info(f"Использование кэша списка файлов (возраст: {cache_age:.0f} сек)")
+                return cached_data.get('files'), cached_data.get('folders')
+        except Exception as e:
+            logger.warning(f"Не удалось загрузить кэш: {e}")
+            return None
+
+    def _save_files_list_to_cache(self, files_list, folders_set):
+        """
+        Сохраняет список файлов в кэш
+
+        :param files_list: Список файлов
+        :param folders_set: Множество папок
+        """
+        cache_path = self._get_cache_path()
+
+        try:
+            cached_data = {
+                'files': files_list,
+                'folders': list(folders_set),
+                'timestamp': time.time(),
+                'remote_path': self.remote_folder_path
+            }
+
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump(cached_data, f, ensure_ascii=False, indent=2)
+
+            logger.debug(f"Список файлов сохранен в кэш: {len(files_list)} файлов, {len(folders_set)} папок")
+        except Exception as e:
+            logger.warning(f"Не удалось сохранить кэш: {e}")
 
     def is_video_file(self, filename):
         """Проверяет, является ли файл видео"""
@@ -493,8 +621,24 @@ class YandexDiskUserSyncer:
 
         # Получаем список всех файлов и папок
         logger.info("Получение списка файлов...")
-        folders_set = set()
-        all_files = self.get_all_files_recursive(self.remote_folder_path, folders_set=folders_set)
+
+        # Пробуем загрузить из кэша если включено
+        cached_result = None
+        if config.ENABLE_FILES_CACHE:
+            cached_result = self._load_cached_files_list(max_age_seconds=config.FILES_CACHE_LIFETIME)
+
+        if cached_result:
+            all_files, folders_list = cached_result
+            folders_set = set(folders_list)
+            logger.success(f"Использован кэш: {len(all_files)} файлов, {len(folders_set)} папок")
+        else:
+            # Получаем файлы с API
+            folders_set = set()
+            all_files = self.get_all_files_recursive(self.remote_folder_path, folders_set=folders_set)
+
+            # Сохраняем в кэш если включено
+            if config.ENABLE_FILES_CACHE and (all_files or folders_set):
+                self._save_files_list_to_cache(all_files, folders_set)
 
         if not all_files and not folders_set:
             logger.warning("Файлы не найдены или произошла ошибка")

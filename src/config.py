@@ -25,7 +25,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Папка на диске пользователя для синхронизации
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
-REMOTE_FOLDER_PATH = "/Клиенты/Аптеки Вита"
+REMOTE_FOLDER_PATH = "/Клиенты"
 
 # Локальная папка для скачивания
 DOWNLOAD_DIR = "downloaded_files"
@@ -74,8 +74,11 @@ MAX_TOTAL_SIZE = 10 * 1024 * 1024 * 1024  # 10 ГБ
 ENABLE_TOTAL_SIZE_LIMIT = True
 
 # === Параметры синхронизации ===
-# Количество потоков для параллельной загрузки
+# Количество потоков для параллельной загрузки файлов
 MAX_WORKERS = 5
+
+# Количество потоков для параллельного получения списка файлов из папок
+FOLDER_SCAN_WORKERS = 5
 
 # Максимальное количество попыток при ошибках сети
 MAX_RETRIES = 3
@@ -85,6 +88,14 @@ RETRY_DELAY = 2
 
 # Таймаут для сетевых запросов (секунды)
 REQUEST_TIMEOUT = 30
+
+# === Кэширование ===
+# Включить кэширование списка файлов (ускоряет повторные запуски)
+ENABLE_FILES_CACHE = True
+
+# Время жизни кэша списка файлов (секунды)
+# После этого времени кэш считается устаревшим и обновляется
+FILES_CACHE_LIFETIME = 300  # 5 минут
 
 # === Токен ===
 # Время жизни токена Token Exchange (секунды)
@@ -96,7 +107,8 @@ TOKEN_REFRESH_BEFORE = 300  # 5 минут
 # === Конвертация в Markdown ===
 # Включить конвертацию файлов в Markdown
 # Установите False чтобы полностью отключить конвертацию всех файлов
-ENABLE_MARKDOWN_CONVERSION = True
+# ENABLE_MARKDOWN_CONVERSION = True
+ENABLE_MARKDOWN_CONVERSION = False
 
 # Папка для сохранения конвертированных markdown файлов
 MARKDOWN_OUTPUT_DIR = "markdown_files"
