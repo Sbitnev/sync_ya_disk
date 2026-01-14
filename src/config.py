@@ -1,6 +1,7 @@
 """
 Конфигурация для синхронизации Яндекс.Диска
 """
+
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -9,22 +10,22 @@ load_dotenv()
 
 # === Учетные данные ===
 # Административный токен для получения информации о пользователях
-ADMIN_TOKEN = os.getenv('YANDEX_ADMIN_TOKEN')
-ORG_ID = os.getenv('YANDEX_ORG_ID')
+ADMIN_TOKEN = os.getenv("YANDEX_ADMIN_TOKEN")
+ORG_ID = os.getenv("YANDEX_ORG_ID")
 
 # Данные сервисного приложения для Token Exchange
-CLIENT_ID = os.getenv('ClientID')
-CLIENT_SECRET = os.getenv('Client_secret')
+CLIENT_ID = os.getenv("ClientID")
+CLIENT_SECRET = os.getenv("Client_secret")
 
 # ID или email пользователя, чей диск синхронизируем
-USER_ID = os.getenv('USER_ID', '1130000057842996')
-USER_EMAIL = os.getenv('USER_EMAIL', 'tn@imprice.ai')
+USER_ID = os.getenv("USER_ID", "1130000057842996")
+USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 
 # === Пути ===
 # Папка на диске пользователя для синхронизации
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
-REMOTE_FOLDER_PATH = "/Клиенты/SOKOLOV"
+REMOTE_FOLDER_PATH = "/Клиенты/Аптеки Вита"
 
 # Локальная папка для скачивания
 DOWNLOAD_DIR = "downloaded_files"
@@ -42,9 +43,20 @@ SKIP_VIDEO_FILES = True
 
 # Расширения видео файлов
 VIDEO_EXTENSIONS = [
-    '.mp4', '.avi', '.mov', '.mkv', '.webm',
-    '.flv', '.wmv', '.m4v', '.mpg', '.mpeg',
-    '.3gp', '.ogv', '.vob', '.ts'
+    ".mp4",
+    ".avi",
+    ".mov",
+    ".mkv",
+    ".webm",
+    ".flv",
+    ".wmv",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+    ".3gp",
+    ".ogv",
+    ".vob",
+    ".ts",
 ]
 
 # Максимальный размер файла для скачивания (в байтах)
@@ -96,7 +108,9 @@ def validate_config():
         errors.append("USER_ID или USER_EMAIL должен быть указан")
 
     if errors:
-        raise ValueError("Ошибки конфигурации:\n" + "\n".join(f"  - {e}" for e in errors))
+        raise ValueError(
+            "Ошибки конфигурации:\n" + "\n".join(f"  - {e}" for e in errors)
+        )
 
 
 def print_config_summary():
@@ -110,8 +124,12 @@ def print_config_summary():
     print()
     print("Ограничения:")
     print(f"  • Видео файлы: {'пропускать' if SKIP_VIDEO_FILES else 'скачивать'}")
-    print(f"  • Большие файлы (>{format_size(MAX_FILE_SIZE)}): {'пропускать' if SKIP_LARGE_FILES else 'скачивать'}")
-    print(f"  • Общий лимит: {format_size(MAX_TOTAL_SIZE) if ENABLE_TOTAL_SIZE_LIMIT else 'нет'}")
+    print(
+        f"  • Большие файлы (>{format_size(MAX_FILE_SIZE)}): {'пропускать' if SKIP_LARGE_FILES else 'скачивать'}"
+    )
+    print(
+        f"  • Общий лимит: {format_size(MAX_TOTAL_SIZE) if ENABLE_TOTAL_SIZE_LIMIT else 'нет'}"
+    )
     print()
     print(f"Параллельных потоков: {MAX_WORKERS}")
     print("=" * 70)
@@ -119,7 +137,7 @@ def print_config_summary():
 
 def format_size(size):
     """Форматирует размер в читаемый вид"""
-    for unit in ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ']:
+    for unit in ["Б", "КБ", "МБ", "ГБ", "ТБ"]:
         if size < 1024.0:
             return f"{size:.1f} {unit}"
         size /= 1024.0
