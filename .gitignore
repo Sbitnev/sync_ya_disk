@@ -3,11 +3,25 @@
 venv/
 env/
 
-# Переменные окружения
+# Переменные окружения и секреты
 .env
+.env.*
+*.env
+Client_secret
+
+# Токены и секреты (но не документация)
+*token*.txt
+*token*.json
+*secret*.txt
+*secret*.json
+user_token
+admin_token
 
 # Скачанные файлы
 downloaded_files/
+downloads/
+test_downloads/
+oauth_downloads/
 
 # Метаданные синхронизации
 sync_metadata.json
@@ -15,6 +29,8 @@ failed_downloads.txt
 
 # Логи
 logs/
+*.log
+sync_output.log
 
 # Python cache
 __pycache__/
@@ -28,5 +44,10 @@ __pycache__/
 *.swp
 *.swo
 
+# Claude Code
 .claude/
 tmpclaude-*-cwd
+
+# Временные файлы
+temp_*/
+tmp_*/
