@@ -107,8 +107,8 @@ TOKEN_REFRESH_BEFORE = 300  # 5 минут
 # === Конвертация в Markdown ===
 # Включить конвертацию файлов в Markdown
 # Установите False чтобы полностью отключить конвертацию всех файлов
-# ENABLE_MARKDOWN_CONVERSION = True
-ENABLE_MARKDOWN_CONVERSION = False
+ENABLE_MARKDOWN_CONVERSION = True
+# ENABLE_MARKDOWN_CONVERSION = False
 
 # Папка для сохранения конвертированных markdown файлов
 MARKDOWN_OUTPUT_DIR = "markdown_files"
@@ -142,6 +142,27 @@ CONVERT_PDF_FILES = True
 
 # Максимальное количество страниц PDF для конвертации
 PDF_MAX_PAGES = 100
+
+# Конвертировать текстовые файлы и код (.txt, .md, .py, .json, .xml, .avsc, .j2)
+CONVERT_TEXT_FILES = True
+
+# Конвертировать PowerPoint презентации (.pptx, .ppt)
+CONVERT_POWERPOINT_FILES = True
+
+# Конвертировать HTML файлы (.html, .htm)
+CONVERT_HTML_FILES = True
+
+# Конвертировать Parquet файлы (.parquet)
+CONVERT_PARQUET_FILES = True
+
+# Максимальное количество строк в Parquet для отображения в markdown
+PARQUET_MAX_ROWS = 1000
+
+# Максимальное количество столбцов в Parquet для отображения
+PARQUET_MAX_COLUMNS = 50
+
+# Конвертировать RTF файлы (.rtf)
+CONVERT_RTF_FILES = True
 
 # Удалять оригинальные файлы после конвертации
 DELETE_ORIGINALS_AFTER_CONVERSION = False
@@ -193,6 +214,11 @@ def print_config_summary():
         print(f"  • CSV файлы: {'да' if CONVERT_CSV_FILES else 'нет'}")
         print(f"  • Excel файлы: {'да' if CONVERT_EXCEL_FILES else 'нет'}")
         print(f"  • PDF файлы: {'да' if CONVERT_PDF_FILES else 'нет'}")
+        print(f"  • Текстовые/код: {'да' if CONVERT_TEXT_FILES else 'нет'}")
+        print(f"  • PowerPoint: {'да' if CONVERT_POWERPOINT_FILES else 'нет'}")
+        print(f"  • HTML: {'да' if CONVERT_HTML_FILES else 'нет'}")
+        print(f"  • Parquet: {'да' if CONVERT_PARQUET_FILES else 'нет'}")
+        print(f"  • RTF: {'да' if CONVERT_RTF_FILES else 'нет'}")
         print(f"  • Папка для MD: {MARKDOWN_OUTPUT_DIR}")
     print("=" * 70)
 

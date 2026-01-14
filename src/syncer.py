@@ -14,7 +14,11 @@ from loguru import logger
 from . import config
 from .utils import sanitize_path, format_size
 from .database import MetadataDatabase
-from .converters import WordConverter, CSVConverter, ExcelConverter, PDFConverter
+from .converters import (
+    WordConverter, CSVConverter, ExcelConverter, PDFConverter,
+    TextConverter, PowerPointConverter, HTMLConverter,
+    ParquetConverter, RTFConverter
+)
 
 
 class YandexDiskUserSyncer:
@@ -85,13 +89,36 @@ class YandexDiskUserSyncer:
                 max_pages=config.PDF_MAX_PAGES
             ) if config.CONVERT_PDF_FILES else None
 
+            # Text/Code конвертер
+            self.text_converter = TextConverter() if config.CONVERT_TEXT_FILES else None
+
+            # PowerPoint конвертер
+            self.ppt_converter = PowerPointConverter() if config.CONVERT_POWERPOINT_FILES else None
+
+            # HTML конвертер
+            self.html_converter = HTMLConverter() if config.CONVERT_HTML_FILES else None
+
+            # Parquet конвертер
+            self.parquet_converter = ParquetConverter(
+                max_rows=config.PARQUET_MAX_ROWS,
+                max_columns=config.PARQUET_MAX_COLUMNS
+            ) if config.CONVERT_PARQUET_FILES else None
+
+            # RTF конвертер
+            self.rtf_converter = RTFConverter() if config.CONVERT_RTF_FILES else None
+
             # Список активных конвертеров
             self.converters = [
                 c for c in [
                     self.word_converter,
                     self.csv_converter,
                     self.excel_converter,
-                    self.pdf_converter
+                    self.pdf_converter,
+                    self.text_converter,
+                    self.ppt_converter,
+                    self.html_converter,
+                    self.parquet_converter,
+                    self.rtf_converter
                 ] if c is not None
             ]
         else:

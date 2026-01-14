@@ -10,3 +10,9 @@ xlrd
 pyxlsb
 pdfplumber
 PyPDF2
+python-pptx
+html2text
+beautifulsoup4
+pyarrow
+striprtf
+pypandoc
