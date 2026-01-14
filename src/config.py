@@ -22,13 +22,16 @@ USER_EMAIL = os.getenv('USER_EMAIL', 'tn@imprice.ai')
 
 # === Пути ===
 # Папка на диске пользователя для синхронизации
-REMOTE_FOLDER_PATH = "/Клиенты"
+# Для тестов: "/Клиенты/SOKOLOV"
+# Для продакшена: "/Клиенты"
+REMOTE_FOLDER_PATH = "/Клиенты/SOKOLOV"
 
 # Локальная папка для скачивания
 DOWNLOAD_DIR = "downloaded_files"
 
-# Файл с метаданными о синхронизации
-METADATA_FILE = "sync_metadata.json"
+# База данных с метаданными о синхронизации
+METADATA_DIR = Path("metadata")
+METADATA_DB_PATH = METADATA_DIR / "sync_metadata.db"
 
 # Папка для логов
 LOGS_DIR = Path("logs")

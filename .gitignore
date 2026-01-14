@@ -25,6 +25,7 @@ oauth_downloads/
 
 # Метаданные синхронизации
 sync_metadata.json
+metadata/
 failed_downloads.txt
 
 # Логи

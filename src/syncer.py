@@ -1,7 +1,6 @@
 """
 Синхронизатор личного диска пользователя Яндекс.Диска
 """
-import json
 import time
 import requests
 from pathlib import Path
@@ -13,6 +12,7 @@ from loguru import logger
 
 from . import config
 from .utils import sanitize_path, format_size
+from .database import MetadataDatabase
 
 
 class YandexDiskUserSyncer:
@@ -34,8 +34,9 @@ class YandexDiskUserSyncer:
         self.token_manager = token_manager
         self.remote_folder_path = remote_folder_path
         self.download_dir = Path(download_dir or config.DOWNLOAD_DIR)
-        self.metadata_file = Path(config.METADATA_FILE)
-        self.metadata = self.load_metadata()
+
+        # База данных для метаданных
+        self.db = MetadataDatabase(config.METADATA_DB_PATH)
         self.metadata_lock = Lock()
 
         # Счетчик скачанных байт
@@ -82,18 +83,6 @@ class YandexDiskUserSyncer:
                     logger.error(f"Ошибка запроса после {max_retries} попыток: {e}")
                     return None
         return None
-
-    def load_metadata(self):
-        """Загружает метаданные о скачанных файлах"""
-        if self.metadata_file.exists():
-            with open(self.metadata_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return {}
-
-    def save_metadata(self):
-        """Сохраняет метаданные о скачанных файлах"""
-        with open(self.metadata_file, 'w', encoding='utf-8') as f:
-            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
 
     def get_user_resources(self, path):
         """
@@ -333,25 +322,13 @@ class YandexDiskUserSyncer:
         if not local_path.exists():
             return True
 
-        # Если нет метаданных о файле, скачиваем
-        if file_path not in self.metadata:
-            return True
-
-        old_metadata = self.metadata[file_path]
-
-        # Сравниваем по дате модификации
-        if old_metadata.get('modified') != file_info['modified']:
-            return True
-
-        # Сравниваем по размеру
-        if old_metadata.get('size') != file_info['size']:
-            return True
-
-        # Сравниваем по MD5 (если доступен)
-        if file_info.get('md5') and old_metadata.get('md5') != file_info['md5']:
-            return True
-
-        return False
+        # Проверяем через БД нужно ли обновлять файл
+        return self.db.file_needs_update(
+            file_path=file_path,
+            size=file_info['size'],
+            modified=file_info['modified'],
+            md5=file_info.get('md5', '')
+        )
 
     def sync(self):
         """Основная функция синхронизации"""
@@ -418,21 +395,21 @@ class YandexDiskUserSyncer:
         def process_file(file_info):
             nonlocal downloaded_count, updated_count, video_count, large_file_count, limit_reached_count
 
-            is_new = file_info['path'] not in self.metadata
+            is_new = self.db.get_file_metadata(file_info['path']) is None
             should_create_empty, reason = self.should_create_empty_file(file_info)
 
             download_result = self.download_file(file_info)
 
             if download_result:
-                # Обновляем метаданные
+                # Сохраняем метаданные в БД
                 with self.metadata_lock:
-                    self.metadata[file_info['path']] = {
-                        'size': file_info['size'],
-                        'modified': file_info['modified'],
-                        'md5': file_info['md5'],
-                        'last_sync': datetime.now().isoformat(),
-                        'is_empty': should_create_empty
-                    }
+                    self.db.save_file_metadata(
+                        file_path=file_info['path'],
+                        size=file_info['size'],
+                        modified=file_info['modified'],
+                        md5=file_info.get('md5', ''),
+                        is_empty=should_create_empty
+                    )
 
                     if should_create_empty:
                         if reason == 'video':
@@ -462,9 +439,6 @@ class YandexDiskUserSyncer:
                         failed_files.append(file_path)
                     pbar.update(1)
 
-        # Сохраняем метаданные
-        self.save_metadata()
-
         # Сохраняем список неудачных файлов
         if failed_files:
             failed_log = Path('failed_downloads.txt')
@@ -486,4 +460,13 @@ class YandexDiskUserSyncer:
             logger.warning(f"Не удалось скачать: {len(failed_files)}")
         logger.info(f"Всего файлов: {len(all_files)}")
         logger.info(f"Скачано данных: {format_size(self.total_downloaded_bytes)}")
+
+        # Статистика из БД
+        db_stats = self.db.get_statistics()
+        logger.info("")
+        logger.info("Статистика БД:")
+        logger.info(f"   Всего записей: {db_stats['total_files']}")
+        logger.info(f"   Реальных файлов: {db_stats['real_files']}")
+        logger.info(f"   Пустых файлов: {db_stats['empty_files']}")
+        logger.info(f"   Общий размер: {format_size(db_stats['total_size'])}")
         logger.info("=" * 70)
