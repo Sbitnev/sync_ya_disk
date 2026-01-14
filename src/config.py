@@ -25,7 +25,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Папка на диске пользователя для синхронизации
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
-REMOTE_FOLDER_PATH = "/Клиенты/Аптеки Вита"
+REMOTE_FOLDER_PATH = "/Клиенты/Юн.Индастриал"
 
 # Локальная папка для скачивания
 DOWNLOAD_DIR = "downloaded_files"

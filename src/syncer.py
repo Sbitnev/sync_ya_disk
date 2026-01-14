@@ -372,6 +372,34 @@ class YandexDiskUserSyncer:
 
         return deleted_local, deleted_db
 
+    def cleanup_empty_folders(self) -> int:
+        """
+        Удаляет пустые папки в локальной директории
+
+        :return: количество удаленных папок
+        """
+        deleted_folders = 0
+
+        # Получаем все папки и сортируем по глубине (от самых вложенных к корневым)
+        all_dirs = [p for p in self.download_dir.rglob('*') if p.is_dir()]
+        sorted_dirs = sorted(all_dirs, key=lambda p: len(p.parts), reverse=True)
+
+        for dirpath in sorted_dirs:
+            try:
+                # Проверяем, пустая ли папка
+                if not any(dirpath.iterdir()):
+                    dirpath.rmdir()
+                    deleted_folders += 1
+                    relative_path = dirpath.relative_to(self.download_dir)
+                    logger.info(f"Удалена пустая папка: {relative_path}")
+            except OSError:
+                # Папка не пустая или другая ошибка - пропускаем
+                pass
+            except Exception as e:
+                logger.error(f"Ошибка при удалении папки {dirpath}: {e}")
+
+        return deleted_folders
+
     def sync(self):
         """Основная функция синхронизации"""
         logger.info(f"Начало синхронизации папки: {self.remote_folder_path}")
@@ -397,6 +425,12 @@ class YandexDiskUserSyncer:
         deleted_local, deleted_db = self.cleanup_deleted_files(all_files)
         if deleted_local > 0 or deleted_db > 0:
             logger.warning(f"Удалено файлов, отсутствующих на диске: {deleted_local} (записей из БД: {deleted_db})")
+
+        # Удаление пустых папок
+        logger.info("Проверка пустых папок...")
+        deleted_folders = self.cleanup_empty_folders()
+        if deleted_folders > 0:
+            logger.warning(f"Удалено пустых папок: {deleted_folders}")
 
         # Создаем структуру папок
         logger.info("Создание структуры папок...")
@@ -506,6 +540,8 @@ class YandexDiskUserSyncer:
         logger.info(f"Пропущено (без изменений): {skipped_count}")
         if deleted_local > 0:
             logger.warning(f"Удалено (отсутствуют на диске): {deleted_local}")
+        if deleted_folders > 0:
+            logger.warning(f"Удалено пустых папок: {deleted_folders}")
         if failed_files:
             logger.warning(f"Не удалось скачать: {len(failed_files)}")
         logger.info(f"Всего файлов: {len(all_files)}")
