@@ -347,8 +347,11 @@ class YandexDiskUserSyncer:
         for converter in self.converters:
             if converter.can_convert(local_path):
                 # Создаем путь для markdown файла
+                # Сохраняем оригинальное расширение в имени, чтобы избежать конфликтов
+                # Например: report.docx → report.docx.md, report.pdf → report.pdf.md
                 relative_path = local_path.relative_to(self.download_dir)
-                md_path = self.markdown_dir / relative_path.with_suffix('.md')
+                md_filename = relative_path.name + '.md'
+                md_path = self.markdown_dir / relative_path.parent / md_filename
 
                 # Конвертируем
                 success = converter.convert_safe(local_path, md_path)

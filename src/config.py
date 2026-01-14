@@ -25,7 +25,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Папка на диске пользователя для синхронизации
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
-REMOTE_FOLDER_PATH = "/Клиенты/Юн.Индастриал"
+REMOTE_FOLDER_PATH = "/Клиенты/Аптеки Вита"
 
 # Локальная папка для скачивания
 DOWNLOAD_DIR = "downloaded_files"
@@ -95,6 +95,7 @@ TOKEN_REFRESH_BEFORE = 300  # 5 минут
 
 # === Конвертация в Markdown ===
 # Включить конвертацию файлов в Markdown
+# Установите False чтобы полностью отключить конвертацию всех файлов
 ENABLE_MARKDOWN_CONVERSION = True
 
 # Папка для сохранения конвертированных markdown файлов
