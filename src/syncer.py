@@ -719,27 +719,31 @@ class YandexDiskUserSyncer:
                     if was_converted:
                         converted_count += 1
 
-                # Сохраняем метаданные в БД
+                # Сохраняем метаданные в БД только для полностью скачанных файлов
+                # Пустые файлы НЕ сохраняем, чтобы они были загружены при следующей синхронизации
                 with self.metadata_lock:
-                    self.db.save_file_metadata(
-                        file_path=file_info['path'],
-                        size=file_info['size'],
-                        modified=file_info['modified'],
-                        md5=file_info.get('md5', ''),
-                        is_empty=should_create_empty
-                    )
-
                     if should_create_empty:
+                        # Пустой файл - НЕ сохраняем в БД для возможности повторной загрузки
                         if reason == 'video':
                             video_count += 1
                         elif reason == 'large':
                             large_file_count += 1
                         elif reason == 'total_limit':
                             limit_reached_count += 1
-                    elif is_new:
-                        downloaded_count += 1
                     else:
-                        updated_count += 1
+                        # Файл скачан полностью - сохраняем в БД
+                        self.db.save_file_metadata(
+                            file_path=file_info['path'],
+                            size=file_info['size'],
+                            modified=file_info['modified'],
+                            md5=file_info.get('md5', ''),
+                            is_empty=False
+                        )
+
+                        if is_new:
+                            downloaded_count += 1
+                        else:
+                            updated_count += 1
 
                 return (True, file_info['path'])
             else:
