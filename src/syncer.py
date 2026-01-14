@@ -330,6 +330,48 @@ class YandexDiskUserSyncer:
             md5=file_info.get('md5', '')
         )
 
+    def cleanup_deleted_files(self, remote_files: list) -> tuple:
+        """
+        Удаляет файлы, которые отсутствуют на удаленном диске
+
+        :param remote_files: Список файлов с удаленного диска
+        :return: (количество удаленных файлов, количество удаленных записей из БД)
+        """
+        # Получаем пути всех файлов с удаленного диска
+        remote_paths = {file_info['path'] for file_info in remote_files}
+
+        # Получаем все файлы из БД
+        db_files = self.db.get_all_files()
+
+        deleted_local = 0
+        deleted_db = 0
+
+        for db_file in db_files:
+            file_path = db_file['path']
+
+            # Если файла нет на удаленном диске - удаляем
+            if file_path not in remote_paths:
+                # Удаляем локальный файл
+                safe_path = sanitize_path(file_path)
+                local_path = self.download_dir / safe_path
+
+                if local_path.exists():
+                    try:
+                        local_path.unlink()
+                        deleted_local += 1
+                        logger.info(f"Удален локальный файл (отсутствует на диске): {file_path}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при удалении файла {file_path}: {e}")
+
+                # Удаляем запись из БД
+                try:
+                    self.db.delete_file_metadata(file_path)
+                    deleted_db += 1
+                except Exception as e:
+                    logger.error(f"Ошибка при удалении метаданных {file_path}: {e}")
+
+        return deleted_local, deleted_db
+
     def sync(self):
         """Основная функция синхронизации"""
         logger.info(f"Начало синхронизации папки: {self.remote_folder_path}")
@@ -349,6 +391,12 @@ class YandexDiskUserSyncer:
 
         logger.info(f"Найдено файлов: {len(all_files)}")
         logger.info(f"Найдено папок: {len(folders_set)}")
+
+        # Очистка удаленных файлов
+        logger.info("Проверка удаленных файлов...")
+        deleted_local, deleted_db = self.cleanup_deleted_files(all_files)
+        if deleted_local > 0 or deleted_db > 0:
+            logger.warning(f"Удалено файлов, отсутствующих на диске: {deleted_local} (записей из БД: {deleted_db})")
 
         # Создаем структуру папок
         logger.info("Создание структуры папок...")
@@ -456,6 +504,8 @@ class YandexDiskUserSyncer:
         logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (созданы пустые файлы): {large_file_count}")
         logger.info(f"Достигнут лимит {format_size(config.MAX_TOTAL_SIZE)} (созданы пустые файлы): {limit_reached_count}")
         logger.info(f"Пропущено (без изменений): {skipped_count}")
+        if deleted_local > 0:
+            logger.warning(f"Удалено (отсутствуют на диске): {deleted_local}")
         if failed_files:
             logger.warning(f"Не удалось скачать: {len(failed_files)}")
         logger.info(f"Всего файлов: {len(all_files)}")
