@@ -5,3 +5,8 @@ loguru
 pandas
 mammoth
 tabulate
+openpyxl
+xlrd
+pyxlsb
+pdfplumber
+PyPDF2

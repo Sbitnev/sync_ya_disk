@@ -13,7 +13,7 @@ from loguru import logger
 from . import config
 from .utils import sanitize_path, format_size
 from .database import MetadataDatabase
-from .converters import WordConverter, CSVConverter
+from .converters import WordConverter, CSVConverter, ExcelConverter, PDFConverter
 
 
 class YandexDiskUserSyncer:
@@ -51,12 +51,37 @@ class YandexDiskUserSyncer:
         self.markdown_dir = Path(config.MARKDOWN_OUTPUT_DIR)
         if config.ENABLE_MARKDOWN_CONVERSION:
             self.markdown_dir.mkdir(exist_ok=True)
+
+            # Word конвертер
             self.word_converter = WordConverter() if config.CONVERT_WORD_FILES else None
+
+            # CSV конвертер
             self.csv_converter = CSVConverter(
                 max_rows=config.CSV_MAX_ROWS,
                 max_columns=config.CSV_MAX_COLUMNS
             ) if config.CONVERT_CSV_FILES else None
-            self.converters = [c for c in [self.word_converter, self.csv_converter] if c is not None]
+
+            # Excel конвертер
+            self.excel_converter = ExcelConverter(
+                max_rows=config.EXCEL_MAX_ROWS,
+                max_columns=config.EXCEL_MAX_COLUMNS,
+                sheets_limit=config.EXCEL_MAX_SHEETS
+            ) if config.CONVERT_EXCEL_FILES else None
+
+            # PDF конвертер
+            self.pdf_converter = PDFConverter(
+                max_pages=config.PDF_MAX_PAGES
+            ) if config.CONVERT_PDF_FILES else None
+
+            # Список активных конвертеров
+            self.converters = [
+                c for c in [
+                    self.word_converter,
+                    self.csv_converter,
+                    self.excel_converter,
+                    self.pdf_converter
+                ] if c is not None
+            ]
         else:
             self.converters = []
 

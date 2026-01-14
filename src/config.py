@@ -112,6 +112,24 @@ CSV_MAX_ROWS = 1000
 # Максимальное количество столбцов в CSV для отображения
 CSV_MAX_COLUMNS = 50
 
+# Конвертировать Excel файлы (.xlsx, .xls, .xlsm, .xlsb)
+CONVERT_EXCEL_FILES = True
+
+# Максимальное количество строк в Excel для отображения в markdown
+EXCEL_MAX_ROWS = 1000
+
+# Максимальное количество столбцов в Excel для отображения
+EXCEL_MAX_COLUMNS = 50
+
+# Максимальное количество листов Excel для конвертации
+EXCEL_MAX_SHEETS = 10
+
+# Конвертировать PDF файлы
+CONVERT_PDF_FILES = True
+
+# Максимальное количество страниц PDF для конвертации
+PDF_MAX_PAGES = 100
+
 # Удалять оригинальные файлы после конвертации
 DELETE_ORIGINALS_AFTER_CONVERSION = False
 
@@ -160,6 +178,8 @@ def print_config_summary():
     if ENABLE_MARKDOWN_CONVERSION:
         print(f"  • Word документы: {'да' if CONVERT_WORD_FILES else 'нет'}")
         print(f"  • CSV файлы: {'да' if CONVERT_CSV_FILES else 'нет'}")
+        print(f"  • Excel файлы: {'да' if CONVERT_EXCEL_FILES else 'нет'}")
+        print(f"  • PDF файлы: {'да' if CONVERT_PDF_FILES else 'нет'}")
         print(f"  • Папка для MD: {MARKDOWN_OUTPUT_DIR}")
     print("=" * 70)
 
