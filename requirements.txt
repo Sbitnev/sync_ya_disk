@@ -2,3 +2,6 @@ requests
 python-dotenv
 tqdm
 loguru
+pandas
+mammoth
+tabulate

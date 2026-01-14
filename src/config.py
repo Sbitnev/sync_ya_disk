@@ -93,6 +93,28 @@ TOKEN_LIFETIME = 3600  # 1 час
 # Обновлять токен за N секунд до истечения
 TOKEN_REFRESH_BEFORE = 300  # 5 минут
 
+# === Конвертация в Markdown ===
+# Включить конвертацию файлов в Markdown
+ENABLE_MARKDOWN_CONVERSION = True
+
+# Папка для сохранения конвертированных markdown файлов
+MARKDOWN_OUTPUT_DIR = "markdown_files"
+
+# Конвертировать Word документы (.docx, .doc)
+CONVERT_WORD_FILES = True
+
+# Конвертировать CSV файлы
+CONVERT_CSV_FILES = True
+
+# Максимальное количество строк в CSV для отображения в markdown
+CSV_MAX_ROWS = 1000
+
+# Максимальное количество столбцов в CSV для отображения
+CSV_MAX_COLUMNS = 50
+
+# Удалять оригинальные файлы после конвертации
+DELETE_ORIGINALS_AFTER_CONVERSION = False
+
 
 def validate_config():
     """Проверяет наличие обязательных настроек"""
@@ -132,6 +154,13 @@ def print_config_summary():
     )
     print()
     print(f"Параллельных потоков: {MAX_WORKERS}")
+    print()
+    print("Конвертация в Markdown:")
+    print(f"  • Включена: {'да' if ENABLE_MARKDOWN_CONVERSION else 'нет'}")
+    if ENABLE_MARKDOWN_CONVERSION:
+        print(f"  • Word документы: {'да' if CONVERT_WORD_FILES else 'нет'}")
+        print(f"  • CSV файлы: {'да' if CONVERT_CSV_FILES else 'нет'}")
+        print(f"  • Папка для MD: {MARKDOWN_OUTPUT_DIR}")
     print("=" * 70)
 
 
