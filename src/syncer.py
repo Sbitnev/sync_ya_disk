@@ -506,20 +506,20 @@ class YandexDiskUserSyncer:
 
         return False
 
-    def convert_file_to_markdown(self, local_path: Path, file_info: dict) -> bool:
+    def convert_file_to_markdown(self, local_path: Path, file_info: dict) -> str:
         """
         Конвертирует файл в Markdown если возможно
 
         :param local_path: Путь к локальному файлу
         :param file_info: Информация о файле
-        :return: True если файл был сконвертирован, False если конвертация не требуется или не удалась
+        :return: Относительный путь к MD файлу если успешно, пустая строка если нет
         """
         if not config.ENABLE_MARKDOWN_CONVERSION:
-            return False
+            return ""
 
         if not local_path.exists() or local_path.stat().st_size == 0:
             # Пустой файл - не конвертируем
-            return False
+            return ""
 
         # Проверяем, может ли кто-то из конвертеров обработать файл
         for converter in self.converters:
@@ -545,10 +545,14 @@ class YandexDiskUserSyncer:
                         except Exception as e:
                             logger.error(f"Ошибка при удалении оригинала {file_info['path']}: {e}")
 
-                return success
+                    # Возвращаем относительный путь к MD файлу
+                    md_relative = str(md_path.relative_to(self.markdown_dir))
+                    return md_relative
+
+                return ""
 
         # Файл не поддерживается конвертерами
-        return False
+        return ""
 
     def get_download_link(self, path):
         """
@@ -762,11 +766,12 @@ class YandexDiskUserSyncer:
 
             if download_result:
                 # Конвертируем файл в Markdown если возможно
+                markdown_path = ""
                 if not should_create_empty:
                     safe_path = sanitize_path(file_info['path'])
                     local_path = self.download_dir / safe_path
-                    was_converted = self.convert_file_to_markdown(local_path, file_info)
-                    if was_converted:
+                    markdown_path = self.convert_file_to_markdown(local_path, file_info)
+                    if markdown_path:
                         converted_count += 1
 
                 # Сохраняем метаданные в БД только для полностью скачанных файлов
@@ -787,7 +792,8 @@ class YandexDiskUserSyncer:
                             size=file_info['size'],
                             modified=file_info['modified'],
                             md5=file_info.get('md5', ''),
-                            is_empty=False
+                            is_empty=False,
+                            markdown_path=markdown_path
                         )
 
                         if is_new:

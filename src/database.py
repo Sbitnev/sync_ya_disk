@@ -20,6 +20,7 @@ class MetadataDatabase:
     - md5: TEXT - MD5 хеш файла
     - last_sync: TEXT - дата последней синхронизации
     - is_empty: INTEGER - флаг пустого файла (0/1)
+    - markdown_path: TEXT - путь к сконвертированному MD файлу
     - created_at: TEXT - дата создания записи
     - updated_at: TEXT - дата обновления записи
     """
@@ -50,10 +51,19 @@ class MetadataDatabase:
                 md5 TEXT,
                 last_sync TEXT NOT NULL,
                 is_empty INTEGER DEFAULT 0,
+                markdown_path TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
         """)
+
+        # Миграция: добавляем колонку markdown_path если её нет
+        try:
+            cursor.execute("SELECT markdown_path FROM files LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Добавление колонки markdown_path в существующую БД")
+            cursor.execute("ALTER TABLE files ADD COLUMN markdown_path TEXT")
+            self.conn.commit()
 
         # Создаем индексы для быстрого поиска
         cursor.execute("""
@@ -86,7 +96,7 @@ class MetadataDatabase:
         return None
 
     def save_file_metadata(self, file_path: str, size: int, modified: str,
-                          md5: str = "", is_empty: bool = False):
+                          md5: str = "", is_empty: bool = False, markdown_path: str = ""):
         """
         Сохраняет или обновляет метаданные файла
 
@@ -95,6 +105,7 @@ class MetadataDatabase:
         :param modified: Дата модификации
         :param md5: MD5 хеш
         :param is_empty: Флаг пустого файла
+        :param markdown_path: Путь к MD файлу
         """
         cursor = self.conn.cursor()
         now = datetime.now().isoformat()
@@ -107,16 +118,16 @@ class MetadataDatabase:
             cursor.execute("""
                 UPDATE files
                 SET size = ?, modified = ?, md5 = ?, last_sync = ?,
-                    is_empty = ?, updated_at = ?
+                    is_empty = ?, markdown_path = ?, updated_at = ?
                 WHERE path = ?
-            """, (size, modified, md5, now, int(is_empty), now, file_path))
+            """, (size, modified, md5, now, int(is_empty), markdown_path, now, file_path))
         else:
             # Создаем новую запись
             cursor.execute("""
                 INSERT INTO files
-                (path, size, modified, md5, last_sync, is_empty, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (file_path, size, modified, md5, now, int(is_empty), now, now))
+                (path, size, modified, md5, last_sync, is_empty, markdown_path, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (file_path, size, modified, md5, now, int(is_empty), markdown_path, now, now))
 
         self.conn.commit()
 
@@ -185,6 +196,37 @@ class MetadataDatabase:
             'real_files': total_files - empty_files,
             'total_size': total_size
         }
+
+    def update_markdown_path(self, file_path: str, markdown_path: str):
+        """
+        Обновляет путь к MD файлу для файла
+
+        :param file_path: Путь к исходному файлу
+        :param markdown_path: Путь к MD файлу
+        """
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute("""
+            UPDATE files
+            SET markdown_path = ?, updated_at = ?
+            WHERE path = ?
+        """, (markdown_path, now, file_path))
+        self.conn.commit()
+
+    def get_files_without_markdown(self) -> list:
+        """
+        Возвращает список файлов без конвертации в Markdown
+
+        :return: Список словарей с метаданными файлов без MD
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM files
+            WHERE (markdown_path IS NULL OR markdown_path = '')
+            AND is_empty = 0
+            ORDER BY path
+        """)
+        return [dict(row) for row in cursor.fetchall()]
 
     def delete_file_metadata(self, file_path: str):
         """
