@@ -17,6 +17,9 @@ pyarrow
 striprtf
 pypandoc
 
+# Database migrations
+alembic>=1.13.0
+
 # Archive extraction
 py7zr>=0.20.0
 rarfile>=4.0

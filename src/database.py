@@ -2,6 +2,7 @@
 Модуль для работы с базой данных метаданных синхронизации
 """
 import sqlite3
+import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -25,57 +26,112 @@ class MetadataDatabase:
     - updated_at: TEXT - дата обновления записи
     """
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, auto_migrate: bool = True):
         """
         Инициализация подключения к БД
 
         :param db_path: Путь к файлу базы данных
+        :param auto_migrate: Автоматически применять миграции Alembic
         """
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Проверяем существует ли БД
+        db_exists = self.db_path.exists()
+
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+
+        # Применяем миграции если включено
+        if auto_migrate:
+            self._run_migrations(db_exists)
+
         self._init_database()
 
+    def _run_migrations(self, db_exists: bool):
+        """
+        Применяет миграции Alembic
+
+        :param db_exists: Существовала ли БД до инициализации
+        """
+        try:
+            project_root = Path(__file__).parent.parent
+
+            if not db_exists:
+                # Новая БД - просто применяем все миграции
+                logger.info("Инициализация новой БД через Alembic...")
+                result = subprocess.run(
+                    ['alembic', 'upgrade', 'head'],
+                    cwd=str(project_root),
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    logger.error(f"Ошибка применения миграций: {result.stderr}")
+                else:
+                    logger.success("Миграции успешно применены")
+            else:
+                # Существующая БД - проверяем версию и применяем недостающие миграции
+                # Сначала проверим есть ли таблица alembic_version
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+                )
+                has_alembic_table = cursor.fetchone() is not None
+
+                if not has_alembic_table:
+                    # Первый запуск с Alembic на существующей БД
+                    # Помечаем текущую версию без применения миграций
+                    logger.info("Инициализация Alembic для существующей БД...")
+                    result = subprocess.run(
+                        ['alembic', 'stamp', 'head'],
+                        cwd=str(project_root),
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode != 0:
+                        logger.error(f"Ошибка инициализации Alembic: {result.stderr}")
+                    else:
+                        logger.success("Alembic инициализирован для существующей БД")
+                else:
+                    # Применяем новые миграции если есть
+                    result = subprocess.run(
+                        ['alembic', 'upgrade', 'head'],
+                        cwd=str(project_root),
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode != 0:
+                        logger.error(f"Ошибка применения миграций: {result.stderr}")
+                    elif "Running upgrade" in result.stdout:
+                        logger.success("Применены новые миграции")
+
+        except Exception as e:
+            logger.error(f"Ошибка работы с Alembic: {e}")
+            logger.warning("Продолжаем работу без миграций")
+
     def _init_database(self):
-        """Создает таблицы если их нет"""
+        """
+        Проверяет целостность БД
+
+        Примечание: Создание таблиц и миграции управляются через Alembic.
+        Этот метод используется только для проверок и логирования.
+        """
         cursor = self.conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT UNIQUE NOT NULL,
-                size INTEGER NOT NULL,
-                modified TEXT NOT NULL,
-                md5 TEXT,
-                last_sync TEXT NOT NULL,
-                is_empty INTEGER DEFAULT 0,
-                markdown_path TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+        # Проверяем существование таблицы files
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='files'"
+        )
+        table_exists = cursor.fetchone() is not None
+
+        if not table_exists:
+            logger.warning(
+                "Таблица 'files' не найдена. "
+                "Возможно, миграции Alembic не были применены."
             )
-        """)
-
-        # Миграция: добавляем колонку markdown_path если её нет
-        try:
-            cursor.execute("SELECT markdown_path FROM files LIMIT 1")
-        except sqlite3.OperationalError:
-            logger.info("Добавление колонки markdown_path в существующую БД")
-            cursor.execute("ALTER TABLE files ADD COLUMN markdown_path TEXT")
-            self.conn.commit()
-
-        # Создаем индексы для быстрого поиска
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_files_path ON files(path)
-        """)
-
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_files_modified ON files(modified)
-        """)
-
-        self.conn.commit()
-        logger.debug(f"База данных инициализирована: {self.db_path}")
+        else:
+            logger.debug(f"База данных готова: {self.db_path}")
 
     def get_file_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
