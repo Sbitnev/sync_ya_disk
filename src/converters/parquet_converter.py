@@ -11,7 +11,7 @@ class ParquetConverter(FileConverter):
     Поддерживает: .parquet
     """
 
-    def __init__(self, max_rows: int = 1000, max_columns: int = 50):
+    def __init__(self, max_rows: int = None, max_columns: int = None):
         super().__init__(['.parquet'])
         self.max_rows = max_rows
         self.max_columns = max_columns
@@ -71,8 +71,8 @@ class ParquetConverter(FileConverter):
                 # Информация о данных
                 total_rows = len(df)
                 total_columns = len(df.columns)
-                rows_truncated = total_rows > self.max_rows
-                columns_truncated = total_columns > self.max_columns
+                rows_truncated = self.max_rows is not None and total_rows > self.max_rows
+                columns_truncated = self.max_columns is not None and total_columns > self.max_columns
 
                 # YAML заголовок
                 f.write("---\n")
@@ -104,14 +104,17 @@ class ParquetConverter(FileConverter):
                 f.write("## Структура данных\n\n")
                 f.write("| Столбец | Тип данных | Не-null |\n")
                 f.write("|---------|------------|--------|\n")
-                for col in df.columns[:self.max_columns]:
+                cols_to_show = df.columns if self.max_columns is None else df.columns[:self.max_columns]
+                for col in cols_to_show:
                     dtype = str(df[col].dtype)
                     non_null = df[col].count()
                     f.write(f"| {col} | {dtype} | {non_null:,} |\n")
                 f.write("\n")
 
                 # Ограничиваем данные
-                df_limited = df.iloc[:self.max_rows, :self.max_columns]
+                row_slice = slice(None) if self.max_rows is None else slice(self.max_rows)
+                col_slice = slice(None) if self.max_columns is None else slice(self.max_columns)
+                df_limited = df.iloc[row_slice, col_slice]
 
                 # Конвертируем в markdown таблицу
                 f.write("## Данные\n\n")

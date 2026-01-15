@@ -15,10 +15,10 @@ class CSVConverter(FileConverter):
     Использует pandas для чтения CSV и форматирования в markdown
     """
 
-    def __init__(self, max_rows: int = 1000, max_columns: int = 50):
+    def __init__(self, max_rows: int = None, max_columns: int = None):
         """
-        :param max_rows: Максимальное количество строк для отображения (для больших файлов)
-        :param max_columns: Максимальное количество столбцов для отображения
+        :param max_rows: Максимальное количество строк для отображения (None = без ограничений)
+        :param max_columns: Максимальное количество столбцов для отображения (None = без ограничений)
         """
         super().__init__(['.csv'])
         self.max_rows = max_rows
@@ -51,14 +51,13 @@ class CSVConverter(FileConverter):
 
             # Получаем информацию о размере
             total_rows, total_cols = df.shape
-            is_truncated_rows = total_rows > self.max_rows
-            is_truncated_cols = total_cols > self.max_columns
+            is_truncated_rows = self.max_rows is not None and total_rows > self.max_rows
+            is_truncated_cols = self.max_columns is not None and total_cols > self.max_columns
 
             # Ограничиваем размер если необходимо
+            df_display = df
             if is_truncated_rows:
-                df_display = df.head(self.max_rows)
-            else:
-                df_display = df
+                df_display = df_display.head(self.max_rows)
 
             if is_truncated_cols:
                 df_display = df_display.iloc[:, :self.max_columns]

@@ -16,11 +16,11 @@ class ExcelConverter(FileConverter):
     Каждый лист Excel -> отдельная секция в Markdown
     """
 
-    def __init__(self, max_rows: int = 1000, max_columns: int = 50, sheets_limit: int = 10):
+    def __init__(self, max_rows: int = None, max_columns: int = None, sheets_limit: int = None):
         """
-        :param max_rows: Максимальное количество строк на лист
-        :param max_columns: Максимальное количество столбцов
-        :param sheets_limit: Максимальное количество листов для конвертации
+        :param max_rows: Максимальное количество строк на лист (None = без ограничений)
+        :param max_columns: Максимальное количество столбцов (None = без ограничений)
+        :param sheets_limit: Максимальное количество листов для конвертации (None = без ограничений)
         """
         super().__init__(['.xlsx', '.xls', '.xlsm', '.xlsb'])
         self.max_rows = max_rows
@@ -54,8 +54,8 @@ class ExcelConverter(FileConverter):
 
             # Ограничиваем количество листов
             total_sheets = len(sheet_names)
-            sheets_to_process = sheet_names[:self.sheets_limit]
-            is_truncated_sheets = total_sheets > self.sheets_limit
+            sheets_to_process = sheet_names if self.sheets_limit is None else sheet_names[:self.sheets_limit]
+            is_truncated_sheets = self.sheets_limit is not None and total_sheets > self.sheets_limit
 
             # Создаем метаданные
             metadata = self._create_metadata(input_path, total_sheets, is_truncated_sheets)
@@ -79,14 +79,13 @@ class ExcelConverter(FileConverter):
 
                     # Получаем информацию о размере
                     total_rows, total_cols = df.shape
-                    is_truncated_rows = total_rows > self.max_rows
-                    is_truncated_cols = total_cols > self.max_columns
+                    is_truncated_rows = self.max_rows is not None and total_rows > self.max_rows
+                    is_truncated_cols = self.max_columns is not None and total_cols > self.max_columns
 
                     # Ограничиваем размер
+                    df_display = df
                     if is_truncated_rows:
-                        df_display = df.head(self.max_rows)
-                    else:
-                        df_display = df
+                        df_display = df_display.head(self.max_rows)
 
                     if is_truncated_cols:
                         df_display = df_display.iloc[:, :self.max_columns]

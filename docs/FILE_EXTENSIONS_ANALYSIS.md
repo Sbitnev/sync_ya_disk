@@ -129,7 +129,7 @@
 | .7z | ❌ Нет | Архив - требует распаковки и обработки содержимого |
 | .avsc | ✅ Да | **TextConverter** → Avro Schema (JSON) как code block |
 | .bkp | ❌ Нет | Резервная копия - обычно не требуется |
-| .csv | ✅ Да | **Pandas** → markdown таблицы (лимит: 1000 строк × 50 столбцов) |
+| .csv | ✅ Да | **Pandas** → markdown таблицы (без лимитов) |
 | .doc | ✅ Да | **Mammoth** (fallback: pandoc) → markdown (старый формат Word) |
 | .docx | ✅ Да | **Mammoth** (fallback: pandoc) → markdown с сохранением форматирования |
 | .drawio | ❌ Нет | Диаграммы - требуется экспорт в изображение |
@@ -150,7 +150,7 @@
 | .mp4 | ❌ Нет | Видео файл - только метаданные |
 | .mpp | ❌ Нет | Microsoft Project - проприетарный формат |
 | .ogg | ❌ Нет | Аудио файл - только метаданные |
-| .parquet | ✅ Да | **ParquetConverter** (Pandas + pyarrow) → markdown таблицы (лимит: 1000 строк × 50 столбцов) |
+| .parquet | ✅ Да | **ParquetConverter** (Pandas + pyarrow) → markdown таблицы (без лимитов) |
 | .pbix | ❌ Нет | Power BI - проприетарный формат |
 | .pdf | ✅ Да | **pdfplumber** (fallback: PyPDF2) → markdown (текст без изображений, лимит: 100 страниц) |
 | .png | ❌ Нет | Изображение - игнорируется (по требованию) |
@@ -166,10 +166,10 @@
 | .tmp | ❌ Нет | Временный файл |
 | .txt | ✅ Да | **TextConverter** → текстовый файл как code block |
 | .webm | ❌ Нет | Видео файл - только метаданные |
-| .xls | ✅ Да | **Pandas (xlrd)** → markdown (каждый лист = секция, лимит: 1000 строк × 50 столбцов × 10 листов) |
-| .xlsb | ✅ Да | **Pandas (pyxlsb)** → markdown (бинарный формат Excel, лимит: 1000 строк × 50 столбцов × 10 листов) |
-| .xlsm | ✅ Да | **Pandas (openpyxl)** → markdown (макросы теряются, лимит: 1000 строк × 50 столбцов × 10 листов) |
-| .xlsx | ✅ Да | **Pandas (openpyxl)** → markdown (каждый лист = секция, лимит: 1000 строк × 50 столбцов × 10 листов) |
+| .xls | ✅ Да | **Pandas (xlrd)** → markdown (каждый лист = секция, без лимитов) |
+| .xlsb | ✅ Да | **Pandas (pyxlsb)** → markdown (бинарный формат Excel, без лимитов) |
+| .xlsm | ✅ Да | **Pandas (openpyxl)** → markdown (макросы теряются, без лимитов) |
+| .xlsx | ✅ Да | **Pandas (openpyxl)** → markdown (каждый лист = секция, без лимитов) |
 | .xml | ✅ Да | **TextConverter** → XML данные как code block |
 | .zip | ❌ Нет | Архив - требует распаковки и обработки содержимого |
 | (без расширения) | ❌ Нет | Неопределенный тип файла |

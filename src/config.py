@@ -119,23 +119,23 @@ CONVERT_WORD_FILES = True
 # Конвертировать CSV файлы
 CONVERT_CSV_FILES = True
 
-# Максимальное количество строк в CSV для отображения в markdown
-CSV_MAX_ROWS = 1000
+# Максимальное количество строк в CSV для отображения в markdown (None = без ограничений)
+CSV_MAX_ROWS = None
 
-# Максимальное количество столбцов в CSV для отображения
-CSV_MAX_COLUMNS = 50
+# Максимальное количество столбцов в CSV для отображения (None = без ограничений)
+CSV_MAX_COLUMNS = None
 
 # Конвертировать Excel файлы (.xlsx, .xls, .xlsm, .xlsb)
 CONVERT_EXCEL_FILES = True
 
-# Максимальное количество строк в Excel для отображения в markdown
-EXCEL_MAX_ROWS = 1000
+# Максимальное количество строк в Excel для отображения в markdown (None = без ограничений)
+EXCEL_MAX_ROWS = None
 
-# Максимальное количество столбцов в Excel для отображения
-EXCEL_MAX_COLUMNS = 50
+# Максимальное количество столбцов в Excel для отображения (None = без ограничений)
+EXCEL_MAX_COLUMNS = None
 
-# Максимальное количество листов Excel для конвертации
-EXCEL_MAX_SHEETS = 10
+# Максимальное количество листов Excel для конвертации (None = без ограничений)
+EXCEL_MAX_SHEETS = None
 
 # Конвертировать PDF файлы
 CONVERT_PDF_FILES = True
@@ -155,11 +155,11 @@ CONVERT_HTML_FILES = True
 # Конвертировать Parquet файлы (.parquet)
 CONVERT_PARQUET_FILES = True
 
-# Максимальное количество строк в Parquet для отображения в markdown
-PARQUET_MAX_ROWS = 1000
+# Максимальное количество строк в Parquet для отображения в markdown (None = без ограничений)
+PARQUET_MAX_ROWS = None
 
-# Максимальное количество столбцов в Parquet для отображения
-PARQUET_MAX_COLUMNS = 50
+# Максимальное количество столбцов в Parquet для отображения (None = без ограничений)
+PARQUET_MAX_COLUMNS = None
 
 # Конвертировать RTF файлы (.rtf)
 CONVERT_RTF_FILES = True
