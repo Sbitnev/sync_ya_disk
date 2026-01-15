@@ -164,6 +164,12 @@ PARQUET_MAX_COLUMNS = None
 # Конвертировать RTF файлы (.rtf)
 CONVERT_RTF_FILES = True
 
+# Конвертировать архивы (.zip, .7z, .rar, .tar, .gz)
+CONVERT_ARCHIVE_FILES = True
+
+# Максимальная глубина вложенности архивов (защита от бесконечной рекурсии)
+ARCHIVE_MAX_DEPTH = 10
+
 # Удалять оригинальные файлы после конвертации
 DELETE_ORIGINALS_AFTER_CONVERSION = False
 
@@ -219,6 +225,7 @@ def print_config_summary():
         print(f"  • HTML: {'да' if CONVERT_HTML_FILES else 'нет'}")
         print(f"  • Parquet: {'да' if CONVERT_PARQUET_FILES else 'нет'}")
         print(f"  • RTF: {'да' if CONVERT_RTF_FILES else 'нет'}")
+        print(f"  • Archives: {'да' if CONVERT_ARCHIVE_FILES else 'нет'}")
         print(f"  • Папка для MD: {MARKDOWN_OUTPUT_DIR}")
     print("=" * 70)
 

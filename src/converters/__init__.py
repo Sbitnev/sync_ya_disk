@@ -11,6 +11,7 @@ from .powerpoint_converter import PowerPointConverter
 from .html_converter import HTMLConverter
 from .parquet_converter import ParquetConverter
 from .rtf_converter import RTFConverter
+from .archive_converter import ArchiveConverter
 
 __all__ = [
     'FileConverter',
@@ -22,5 +23,6 @@ __all__ = [
     'PowerPointConverter',
     'HTMLConverter',
     'ParquetConverter',
-    'RTFConverter'
+    'RTFConverter',
+    'ArchiveConverter'
 ]

@@ -17,7 +17,7 @@ from .database import MetadataDatabase
 from .converters import (
     WordConverter, CSVConverter, ExcelConverter, PDFConverter,
     TextConverter, PowerPointConverter, HTMLConverter,
-    ParquetConverter, RTFConverter
+    ParquetConverter, RTFConverter, ArchiveConverter
 )
 
 
@@ -107,6 +107,28 @@ class YandexDiskUserSyncer:
             # RTF конвертер
             self.rtf_converter = RTFConverter() if config.CONVERT_RTF_FILES else None
 
+            # Archive конвертер (инициализируем последним, чтобы передать все остальные конвертеры)
+            self.archive_converter = None
+            if config.CONVERT_ARCHIVE_FILES:
+                # Собираем список всех активных конвертеров
+                available_converters = [
+                    c for c in [
+                        self.word_converter,
+                        self.csv_converter,
+                        self.excel_converter,
+                        self.pdf_converter,
+                        self.text_converter,
+                        self.ppt_converter,
+                        self.html_converter,
+                        self.parquet_converter,
+                        self.rtf_converter
+                    ] if c is not None
+                ]
+                self.archive_converter = ArchiveConverter(
+                    converters_registry=available_converters,
+                    max_depth=config.ARCHIVE_MAX_DEPTH
+                )
+
             # Список активных конвертеров
             self.converters = [
                 c for c in [
@@ -118,7 +140,8 @@ class YandexDiskUserSyncer:
                     self.ppt_converter,
                     self.html_converter,
                     self.parquet_converter,
-                    self.rtf_converter
+                    self.rtf_converter,
+                    self.archive_converter
                 ] if c is not None
             ]
         else:
