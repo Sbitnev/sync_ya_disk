@@ -755,12 +755,14 @@ class YandexDiskUserSyncer:
         large_file_count = 0
         limit_reached_count = 0
         converted_count = 0
+        skipped_conversion_count = 0
         failed_files = []
 
         def process_file(file_info):
-            nonlocal downloaded_count, updated_count, video_count, large_file_count, limit_reached_count, converted_count
+            nonlocal downloaded_count, updated_count, video_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count
 
-            is_new = self.db.get_file_metadata(file_info['path']) is None
+            existing_metadata = self.db.get_file_metadata(file_info['path'])
+            is_new = existing_metadata is None
             should_create_empty, reason = self.should_create_empty_file(file_info)
 
             download_result = self.download_file(file_info)
@@ -771,9 +773,25 @@ class YandexDiskUserSyncer:
                 if not should_create_empty:
                     safe_path = sanitize_path(file_info['path'])
                     local_path = self.download_dir / safe_path
-                    markdown_path = self.convert_file_to_markdown(local_path, file_info)
-                    if markdown_path:
-                        converted_count += 1
+
+                    # Проверяем: нужна ли конвертация?
+                    # Пропускаем если файл уже был сконвертирован и MD файл существует
+                    should_convert = True
+                    if existing_metadata and existing_metadata.get('markdown_path'):
+                        # Проверяем существует ли MD файл
+                        existing_md_path = self.markdown_dir / existing_metadata['markdown_path']
+                        if existing_md_path.exists():
+                            # MD файл существует - используем существующий путь
+                            markdown_path = existing_metadata['markdown_path']
+                            should_convert = False
+                            skipped_conversion_count += 1
+                            logger.debug(f"Конвертация пропущена (MD существует): {file_info['path']}")
+
+                    if should_convert:
+                        # Конвертируем файл
+                        markdown_path = self.convert_file_to_markdown(local_path, file_info)
+                        if markdown_path:
+                            converted_count += 1
 
                 # Сохраняем метаданные в БД только для полностью скачанных файлов
                 # Пустые файлы НЕ сохраняем, чтобы они были загружены при следующей синхронизации
@@ -837,6 +855,8 @@ class YandexDiskUserSyncer:
         logger.info(f"Пропущено (без изменений): {skipped_count}")
         if converted_count > 0:
             logger.info(f"Конвертировано в Markdown: {converted_count}")
+        if skipped_conversion_count > 0:
+            logger.info(f"Конвертация пропущена (MD существует): {skipped_conversion_count}")
         if deleted_local > 0:
             logger.warning(f"Удалено (отсутствуют на диске): {deleted_local}")
         if deleted_folders > 0:
