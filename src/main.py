@@ -51,6 +51,10 @@ def apply_migrations():
     try:
         project_root = Path(__file__).parent.parent
 
+        # Создаем директорию для БД если её нет
+        db_dir = config.METADATA_DB_PATH.parent
+        db_dir.mkdir(parents=True, exist_ok=True)
+
         logger.info("Применение миграций базы данных...")
         result = subprocess.run(
             ['alembic', 'upgrade', 'head'],
@@ -85,7 +89,9 @@ def main():
 
     # Применение миграций БД
     if not apply_migrations():
-        logger.warning("Не удалось применить миграции, продолжаем работу")
+        logger.error("Не удалось применить миграции базы данных")
+        logger.error("Проверьте логи выше для деталей ошибки")
+        return 1
 
     # Валидация конфигурации
     try:
