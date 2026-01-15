@@ -184,12 +184,35 @@ class ArchiveConverter(FileConverter):
             }
 
     def _extract_zip(self, archive_path: Path, extract_dir: Path) -> Dict:
-        """Распаковка ZIP архива"""
+        """Распаковка ZIP архива с правильной обработкой кодировки"""
         import zipfile
 
         try:
             with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
+                # Извлекаем файлы с правильной кодировкой имен
+                for member in zip_ref.namelist():
+                    # Пробуем определить правильную кодировку для имени файла
+                    try:
+                        # Сначала пробуем CP866 (стандарт для русской Windows)
+                        filename = member.encode('cp437').decode('cp866')
+                    except (UnicodeDecodeError, UnicodeEncodeError):
+                        try:
+                            # Если не получилось, пробуем UTF-8
+                            filename = member.encode('cp437').decode('utf-8')
+                        except (UnicodeDecodeError, UnicodeEncodeError):
+                            # Если и это не получилось, используем оригинальное имя
+                            filename = member
+
+                    # Извлекаем файл с правильным именем
+                    source = zip_ref.open(member)
+                    target_path = extract_dir / filename
+
+                    # Создаем директории если нужно
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Записываем содержимое
+                    with open(target_path, 'wb') as target:
+                        target.write(source.read())
 
             files = list(extract_dir.rglob('*'))
             files = [f for f in files if f.is_file()]
