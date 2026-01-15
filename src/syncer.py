@@ -42,7 +42,8 @@ class YandexDiskUserSyncer:
         self.download_dir = Path(download_dir or config.DOWNLOAD_DIR)
 
         # База данных для метаданных
-        self.db = MetadataDatabase(config.METADATA_DB_PATH)
+        # auto_migrate=False т.к. миграции применяются в main.py перед запуском
+        self.db = MetadataDatabase(config.METADATA_DB_PATH, auto_migrate=False)
         self.metadata_lock = Lock()
 
         # Счетчик скачанных байт

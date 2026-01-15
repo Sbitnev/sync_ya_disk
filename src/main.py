@@ -2,6 +2,7 @@
 Главная точка входа для синхронизации личной папки пользователя с Яндекс.Диска
 """
 import sys
+import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
 from loguru import logger
@@ -45,10 +46,46 @@ def setup_logging():
     )
 
 
+def apply_migrations():
+    """Применяет миграции Alembic к БД"""
+    try:
+        project_root = Path(__file__).parent.parent
+
+        logger.info("Применение миграций базы данных...")
+        result = subprocess.run(
+            ['alembic', 'upgrade', 'head'],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            logger.error(f"Ошибка применения миграций: {result.stderr}")
+            return False
+
+        # Проверяем были ли применены новые миграции
+        # Alembic выводит в stderr, а не в stdout
+        output = result.stdout + result.stderr
+        if "Running upgrade" in output:
+            logger.success("Миграции успешно применены")
+        else:
+            logger.info("База данных актуальна")
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Ошибка при применении миграций: {e}")
+        return False
+
+
 def main():
     """Главная функция"""
     # Настройка логирования
     setup_logging()
+
+    # Применение миграций БД
+    if not apply_migrations():
+        logger.warning("Не удалось применить миграции, продолжаем работу")
 
     # Валидация конфигурации
     try:
