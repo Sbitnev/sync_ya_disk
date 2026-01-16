@@ -294,6 +294,54 @@ class MetadataDatabase:
         cursor.execute("DELETE FROM files WHERE path = ?", (file_path,))
         self.conn.commit()
 
+    def update_transcription_status(self, file_path: str, status: str, operation_id: str = None,
+                                   video_metadata: str = None):
+        """
+        Обновляет статус транскрибации видео
+
+        :param file_path: Путь к файлу
+        :param status: Статус (pending/in_progress/completed/failed)
+        :param operation_id: ID операции в Yandex (опционально)
+        :param video_metadata: JSON метаданные видео (опционально)
+        """
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+
+        update_fields = ["transcription_status = ?", "updated_at = ?"]
+        params = [status, now]
+
+        if operation_id is not None:
+            update_fields.append("transcription_operation_id = ?")
+            params.append(operation_id)
+
+        if video_metadata is not None:
+            update_fields.append("video_metadata = ?")
+            params.append(video_metadata)
+
+        if status == 'in_progress':
+            update_fields.append("transcription_started_at = ?")
+            params.append(now)
+
+        params.append(file_path)
+
+        query = f"UPDATE files SET {', '.join(update_fields)} WHERE path = ?"
+        cursor.execute(query, params)
+        self.conn.commit()
+
+    def get_pending_transcriptions(self) -> list:
+        """
+        Возвращает список файлов с незавершенной транскрибацией
+
+        :return: Список словарей с метаданными файлов
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM files
+            WHERE transcription_status IN ('pending', 'in_progress')
+            ORDER BY transcription_started_at
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
     def clear_all(self):
         """Очищает всю БД"""
         cursor = self.conn.cursor()

@@ -101,10 +101,24 @@ class VideoConverter(FileConverter):
         try:
             logger.info(f"Начало транскрибации видео: {input_path.name}")
 
+            # Сохраняем метаданные файла ДО удаления
+            video_metadata = {
+                'name': input_path.name,
+                'size_mb': input_path.stat().st_size / (1024 * 1024)
+            }
+
             # 1. Извлечь аудио из видео
             audio_path = self._extract_audio(input_path)
             if not audio_path:
                 return False
+
+            # Удаляем оригинальное видео сразу после извлечения аудио
+            # Видео больше не нужно, освобождаем место
+            try:
+                input_path.unlink()
+                logger.info(f"Видео удалено после извлечения аудио: {video_metadata['name']} ({video_metadata['size_mb']:.1f} МБ освобождено)")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить видео {video_metadata['name']}: {e}")
 
             # 2. Загрузить аудио в S3
             s3_uri = self._upload_to_s3(audio_path)
@@ -131,7 +145,7 @@ class VideoConverter(FileConverter):
                 return False
 
             # 6. Сохранить в Markdown
-            self._save_markdown(output_path, input_path, transcript_text)
+            self._save_markdown(output_path, video_metadata, transcript_text)
 
             logger.success(f"Видео успешно транскрибировано: {input_path.name}")
             return True
@@ -148,6 +162,121 @@ class VideoConverter(FileConverter):
                     logger.debug(f"Временный аудио файл удален: {audio_path.name}")
                 except Exception as e:
                     logger.warning(f"Не удалось удалить временный файл {audio_path}: {e}")
+
+    def convert_async(self, input_path: Path) -> tuple:
+        """
+        Запускает транскрибацию асинхронно (без ожидания завершения)
+
+        :param input_path: Путь к видео файлу
+        :return: (operation_id, video_metadata, audio_path) если успешно, (None, None, None) при ошибке
+        """
+        try:
+            logger.info(f"Начало асинхронной транскрибации видео: {input_path.name}")
+
+            # Сохраняем метаданные файла ДО удаления
+            video_metadata = {
+                'name': input_path.name,
+                'size_mb': input_path.stat().st_size / (1024 * 1024)
+            }
+
+            # 1. Извлечь аудио из видео
+            audio_path = self._extract_audio(input_path)
+            if not audio_path:
+                return (None, None, None)
+
+            # Удаляем оригинальное видео сразу после извлечения аудио
+            try:
+                input_path.unlink()
+                logger.info(f"Видео удалено после извлечения аудио: {video_metadata['name']} ({video_metadata['size_mb']:.1f} МБ освобождено)")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить видео {video_metadata['name']}: {e}")
+
+            # 2. Загрузить аудио в S3
+            s3_uri = self._upload_to_s3(audio_path)
+            if not s3_uri:
+                return (None, None, None)
+
+            # 3. Запустить транскрибацию (но не ждать)
+            operation_id = self._start_recognition(s3_uri)
+            if not operation_id:
+                return (None, None, None)
+
+            logger.success(f"Транскрибация запущена асинхронно: {video_metadata['name']} (operation_id: {operation_id})")
+
+            # Возвращаем operation_id, метаданные и путь к аудио (для удаления позже)
+            return (operation_id, video_metadata, audio_path)
+
+        except Exception as e:
+            logger.error(f"Ошибка при запуске асинхронной транскрибации {input_path.name}: {e}")
+            return (None, None, None)
+
+    def check_operation_status(self, operation_id: str) -> dict:
+        """
+        Проверяет статус операции транскрибации
+
+        :param operation_id: ID операции
+        :return: Словарь с полями: {'done': bool, 'error': str|None, 'response': dict|None}
+        """
+        url = f"https://operation.api.cloud.yandex.net/operations/{operation_id}"
+        headers = {"Authorization": f"Api-Key {self.yc_api_key}"}
+
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            result = response.json()
+
+            return {
+                'done': result.get('done', False),
+                'error': result.get('error'),
+                'response': result.get('response') if result.get('done') else None
+            }
+
+        except Exception as e:
+            logger.error(f"Ошибка при проверке статуса операции {operation_id}: {e}")
+            return {'done': False, 'error': str(e), 'response': None}
+
+    def save_transcription_result(self, operation_id: str, output_path: Path, video_metadata: dict) -> bool:
+        """
+        Получает результат завершенной транскрибации и сохраняет в MD
+
+        :param operation_id: ID операции
+        :param output_path: Путь к .md файлу
+        :param video_metadata: Метаданные видео
+        :return: True если успешно
+        """
+        try:
+            # Проверяем статус
+            status = self.check_operation_status(operation_id)
+
+            if not status['done']:
+                logger.warning(f"Операция {operation_id} еще не завершена")
+                return False
+
+            if status['error']:
+                logger.error(f"Ошибка транскрибации {operation_id}: {status['error']}")
+                return False
+
+            # Получаем результат
+            result = status['response']
+            if not result:
+                logger.error(f"Пустой результат транскрибации {operation_id}")
+                return False
+
+            # Форматируем текст
+            transcript_text = self._format_transcript(result)
+            if not transcript_text:
+                logger.error(f"Не удалось извлечь текст из результата {operation_id}")
+                return False
+
+            # Сохраняем в Markdown
+            self._save_markdown(output_path, video_metadata, transcript_text)
+
+            logger.success(f"Результат транскрибации сохранен: {video_metadata['name']}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении результата транскрибации {operation_id}: {e}")
+            return False
 
     def _extract_audio(self, video_path: Path) -> Path:
         """Извлекает аудио из видео с помощью ffmpeg"""
@@ -309,13 +438,13 @@ class VideoConverter(FileConverter):
             logger.error(f"Ошибка при форматировании транскрипта: {e}")
             return ""
 
-    def _save_markdown(self, output_path: Path, input_path: Path, text: str):
+    def _save_markdown(self, output_path: Path, video_metadata: dict, text: str):
         """Сохраняет транскрипт в Markdown формате"""
         # Формируем красивый Markdown
-        markdown_content = f"""# Транскрипция видео: {input_path.name}
+        markdown_content = f"""# Транскрипция видео: {video_metadata['name']}
 
-**Исходный файл:** {input_path.name}
-**Размер:** {input_path.stat().st_size / 1024 / 1024:.1f} МБ
+**Исходный файл:** {video_metadata['name']}
+**Размер:** {video_metadata['size_mb']:.1f} МБ
 **Дата транскрибации:** {time.strftime('%Y-%m-%d %H:%M:%S')}
 
 ---

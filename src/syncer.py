@@ -153,6 +153,316 @@ class YandexDiskUserSyncer:
         else:
             self.converters = []
 
+        # Список временных аудио файлов для удаления
+        self.pending_audio_files = []
+
+    def analyze_folders(self, all_files: list) -> dict:
+        """
+        Анализирует папки первого уровня: типы файлов, количество, размер
+
+        :param all_files: Список всех файлов
+        :return: Словарь с анализом по папкам
+        """
+        from collections import defaultdict
+
+        folders_stats = defaultdict(lambda: {
+            'total_size': 0,
+            'file_count': 0,
+            'file_types': defaultdict(int)
+        })
+
+        # Файлы в корне (без подпапок)
+        root_folder = "(корневая папка)"
+
+        for file_info in all_files:
+            file_path = file_info['path']
+            file_size = file_info['size']
+
+            # Определяем папку первого уровня
+            path_parts = file_path.split('/')
+            if len(path_parts) > 1:
+                folder_name = path_parts[0]
+            else:
+                folder_name = root_folder
+
+            # Определяем тип файла по расширению
+            file_ext = Path(file_path).suffix.lower()
+            if not file_ext:
+                file_ext = "(без расширения)"
+
+            # Обновляем статистику
+            folders_stats[folder_name]['total_size'] += file_size
+            folders_stats[folder_name]['file_count'] += 1
+            folders_stats[folder_name]['file_types'][file_ext] += 1
+
+        return dict(folders_stats)
+
+    def select_folders_interactive(self, folders_stats: dict) -> list:
+        """
+        Интерактивный выбор папок для синхронизации
+
+        :param folders_stats: Статистика по папкам
+        :return: Список выбранных папок
+        """
+        from src.config import format_size
+
+        logger.info("=" * 70)
+        logger.info("АНАЛИЗ ПАПОК ДЛЯ СИНХРОНИЗАЦИИ")
+        logger.info("=" * 70)
+
+        # Сортируем папки по размеру (по убыванию)
+        sorted_folders = sorted(
+            folders_stats.items(),
+            key=lambda x: x[1]['total_size'],
+            reverse=True
+        )
+
+        # Выводим список папок
+        folder_names = []
+        for idx, (folder_name, stats) in enumerate(sorted_folders, 1):
+            folder_names.append(folder_name)
+
+            # Форматируем информацию о папке
+            size_str = format_size(stats['total_size'])
+            file_count = stats['file_count']
+
+            # Топ-5 типов файлов
+            top_types = sorted(
+                stats['file_types'].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5]
+            types_str = ", ".join([f"{ext} ({count})" for ext, count in top_types])
+
+            logger.info(f"{idx}. {folder_name}")
+            logger.info(f"   Размер: {size_str}")
+            logger.info(f"   Файлов: {file_count}")
+            logger.info(f"   Типы: {types_str}")
+            logger.info("")
+
+        logger.info("=" * 70)
+        logger.info("Выберите папки для синхронизации:")
+        logger.info("  • Введите номера папок через запятую (например: 1,3,5)")
+        logger.info("  • Или 'all' для синхронизации всех папок")
+        logger.info("  • Или 'cancel' для отмены")
+        logger.info("=" * 70)
+
+        # Получаем выбор пользователя
+        while True:
+            try:
+                user_input = input("\nВаш выбор: ").strip().lower()
+
+                if user_input == 'cancel':
+                    logger.warning("Синхронизация отменена пользователем")
+                    return []
+
+                if user_input == 'all':
+                    logger.success(f"Выбраны все папки ({len(folder_names)})")
+                    return folder_names
+
+                # Парсим номера папок
+                selected_indices = []
+                for part in user_input.split(','):
+                    part = part.strip()
+                    if part.isdigit():
+                        idx = int(part)
+                        if 1 <= idx <= len(folder_names):
+                            selected_indices.append(idx - 1)
+                        else:
+                            logger.error(f"Неверный номер: {idx}")
+                            raise ValueError()
+                    else:
+                        logger.error(f"Неверный формат: {part}")
+                        raise ValueError()
+
+                if not selected_indices:
+                    logger.error("Не выбрано ни одной папки")
+                    raise ValueError()
+
+                # Получаем имена выбранных папок
+                selected_folders = [folder_names[i] for i in selected_indices]
+                logger.success(f"Выбрано папок: {len(selected_folders)}")
+                for folder in selected_folders:
+                    logger.info(f"  • {folder}")
+
+                return selected_folders
+
+            except (ValueError, KeyboardInterrupt):
+                logger.warning("Неверный ввод. Попробуйте еще раз.")
+                continue
+
+    def check_pending_transcriptions(self):
+        """
+        Проверяет и завершает незавершенные транскрибации из предыдущих запусков
+        """
+        if not config.VIDEO_CHECK_PENDING_ON_START or not self.video_converter:
+            return
+
+        logger.info("Проверка незавершенных транскрибаций...")
+        import json
+
+        pending = self.db.get_pending_transcriptions()
+        if not pending:
+            logger.info("Незавершенных транскрибаций нет")
+            return
+
+        logger.info(f"Найдено незавершенных транскрибаций: {len(pending)}")
+        completed = 0
+        failed = 0
+
+        for record in pending:
+            operation_id = record.get('transcription_operation_id')
+            if not operation_id:
+                continue
+
+            file_path = record['path']
+            logger.info(f"Проверка операции {operation_id} для {file_path}")
+
+            # Проверяем статус
+            status = self.video_converter.check_operation_status(operation_id)
+
+            if status['done']:
+                # Операция завершена
+                if status['error']:
+                    logger.error(f"Транскрибация завершилась с ошибкой: {file_path}")
+                    self.db.update_transcription_status(file_path, 'failed')
+                    failed += 1
+                else:
+                    # Сохраняем результат
+                    try:
+                        video_metadata = json.loads(record.get('video_metadata', '{}'))
+                        relative_path = Path(file_path)
+                        md_filename = relative_path.name + '.md'
+                        md_path = self.markdown_dir / relative_path.parent / md_filename
+
+                        if self.video_converter.save_transcription_result(operation_id, md_path, video_metadata):
+                            # Обновляем БД
+                            md_relative = str(md_path.relative_to(self.markdown_dir))
+                            self.db.save_file_metadata(
+                                file_path=file_path,
+                                size=record['size'],
+                                modified=record['modified'],
+                                md5=record.get('md5', ''),
+                                is_empty=False,
+                                markdown_path=md_relative
+                            )
+                            self.db.update_transcription_status(file_path, 'completed')
+                            logger.success(f"Транскрибация завершена: {file_path}")
+                            completed += 1
+                        else:
+                            self.db.update_transcription_status(file_path, 'failed')
+                            failed += 1
+                    except Exception as e:
+                        logger.error(f"Ошибка при сохранении результата транскрибации {file_path}: {e}")
+                        self.db.update_transcription_status(file_path, 'failed')
+                        failed += 1
+            else:
+                logger.info(f"Транскрибация еще в процессе: {file_path}")
+
+        if completed > 0:
+            logger.success(f"Завершено транскрибаций из предыдущих запусков: {completed}")
+        if failed > 0:
+            logger.warning(f"Транскрибаций завершились с ошибками: {failed}")
+
+    def cleanup_pending_audio_files(self):
+        """Удаляет временные аудио файлы после завершения синхронизации"""
+        if not hasattr(self, 'pending_audio_files') or not self.pending_audio_files:
+            return
+
+        logger.info(f"Удаление временных аудио файлов: {len(self.pending_audio_files)}")
+        for audio_path in self.pending_audio_files:
+            try:
+                if audio_path.exists():
+                    audio_path.unlink()
+                    logger.debug(f"Удален временный аудио: {audio_path.name}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить временный файл {audio_path}: {e}")
+
+        self.pending_audio_files = []
+
+    def wait_for_all_transcriptions(self):
+        """
+        Ждет завершения всех транскрибаций перед завершением синхронизации
+
+        Периодически проверяет статус незавершенных транскрибаций
+        и обрабатывает результаты по мере готовности
+        """
+        logger.info("=" * 70)
+        logger.info("ОЖИДАНИЕ ЗАВЕРШЕНИЯ ТРАНСКРИБАЦИЙ")
+        logger.info("=" * 70)
+
+        while True:
+            # Получаем список незавершенных транскрибаций
+            pending = self.db.get_pending_transcriptions()
+
+            if not pending:
+                logger.success("Все транскрибации завершены!")
+                logger.info("=" * 70)
+                break
+
+            logger.info(f"Незавершенных транскрибаций: {len(pending)}")
+
+            # Проверяем статус каждой операции
+            completed_count = 0
+            for file_metadata in pending:
+                file_path = file_metadata['path']
+                operation_id = file_metadata.get('transcription_operation_id')
+
+                if not operation_id:
+                    logger.warning(f"Нет operation_id для {file_path}, пропускаем")
+                    continue
+
+                logger.info(f"Проверка операции {operation_id} для {file_path}")
+
+                # Проверяем статус операции
+                status = self.video_converter.check_operation_status(operation_id)
+
+                if status['done']:
+                    # Операция завершена
+                    if status['error']:
+                        logger.error(f"Транскрибация завершилась с ошибкой: {file_path}")
+                        self.db.update_transcription_status(file_path, 'failed')
+                        completed_count += 1
+                    else:
+                        # Сохраняем результат
+                        try:
+                            import json
+                            video_metadata = json.loads(file_metadata.get('video_metadata', '{}'))
+                            relative_path = Path(file_path)
+                            md_filename = relative_path.name + '.md'
+                            md_path = self.markdown_dir / relative_path.parent / md_filename
+
+                            if self.video_converter.save_transcription_result(operation_id, md_path, video_metadata):
+                                # Обновляем БД
+                                md_relative = str(md_path.relative_to(self.markdown_dir))
+                                self.db.update_markdown_path(file_path, md_relative)
+                                self.db.update_transcription_status(file_path, 'completed')
+                                logger.success(f"Транскрибация завершена: {file_path}")
+                                completed_count += 1
+                            else:
+                                self.db.update_transcription_status(file_path, 'failed')
+                                completed_count += 1
+                        except Exception as e:
+                            logger.error(f"Ошибка при сохранении результата транскрибации {file_path}: {e}")
+                            self.db.update_transcription_status(file_path, 'failed')
+                            completed_count += 1
+                else:
+                    logger.info(f"Транскрибация еще в процессе: {file_path}")
+
+            if completed_count > 0:
+                logger.success(f"Завершено транскрибаций: {completed_count}")
+
+            # Проверяем снова есть ли незавершенные
+            pending = self.db.get_pending_transcriptions()
+            if not pending:
+                logger.success("Все транскрибации завершены!")
+                logger.info("=" * 70)
+                break
+
+            # Ждем перед следующей проверкой
+            logger.info(f"Ожидание {config.VIDEO_CHECK_INTERVAL} сек перед следующей проверкой...")
+            time.sleep(config.VIDEO_CHECK_INTERVAL)
+
     def _request_with_retry(self, method, url, max_retries=None, **kwargs):
         """Выполняет HTTP запрос с повторными попытками при ошибках"""
         max_retries = max_retries or config.MAX_RETRIES
@@ -179,7 +489,8 @@ class YandexDiskUserSyncer:
                     logger.error(f"Превышено время ожидания после {max_retries} попыток")
                     return None
             except requests.exceptions.HTTPError as e:
-                logger.error(f"HTTP ошибка: {e}")
+                status_code = e.response.status_code if e.response is not None else 'неизвестно'
+                logger.error(f"HTTP ошибка {status_code}: {e}")
                 return None
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries - 1:
@@ -216,7 +527,7 @@ class YandexDiskUserSyncer:
 
             response = self._request_with_retry('get', url, headers=headers, params=params)
             if not response:
-                logger.error(f"Не удалось получить ресурсы для: {path}")
+                # Ошибка уже залогирована в _request_with_retry
                 break
 
             data = response.json()
@@ -276,7 +587,7 @@ class YandexDiskUserSyncer:
         data = self.get_user_resources(path)
 
         if not data:
-            logger.warning(f"Не удалось получить данные для: {path}")
+            logger.warning(f"Папка пропущена (нет доступа или пустая): {path}")
             return files_list
 
         if '_embedded' in data and 'items' in data['_embedded']:
@@ -507,6 +818,48 @@ class YandexDiskUserSyncer:
 
         return False
 
+    def should_convert_file(self, file_info: dict) -> bool:
+        """
+        Проверяет нужно ли конвертировать файл (кэширование)
+
+        :param file_info: Информация о файле
+        :return: True если нужно конвертировать, False если есть в кэше
+        """
+        # Получаем метаданные из БД
+        db_record = self.db.get_file_metadata(file_info['path'])
+
+        if not db_record:
+            # Файла нет в БД - нужна конвертация
+            return True
+
+        # Проверяем есть ли уже MD файл
+        if not db_record.get('markdown_path'):
+            # MD файла нет - нужна конвертация
+            return True
+
+        # Проверяем изменился ли файл
+        if (db_record.get('size') != file_info['size'] or
+            db_record.get('modified') != file_info['modified']):
+            # Файл изменился - нужна повторная конвертация
+            logger.info(f"Файл изменился, требуется повторная конвертация: {file_info['path']}")
+            return True
+
+        # Проверяем существует ли MD файл физически
+        md_path = self.markdown_dir / db_record['markdown_path']
+        if not md_path.exists():
+            # MD файл удален - нужна повторная конвертация
+            logger.warning(f"MD файл удален, требуется повторная конвертация: {file_info['path']}")
+            return True
+
+        # Для видео проверяем статус транскрибации
+        if db_record.get('transcription_status') == 'in_progress':
+            logger.info(f"Транскрибация видео в процессе: {file_info['path']}")
+            return False  # Не конвертируем, ждем завершения
+
+        # Файл уже сконвертирован и не изменился - используем кэш
+        logger.debug(f"Используется кэшированный MD: {file_info['path']}")
+        return False
+
     def convert_file_to_markdown(self, local_path: Path, file_info: dict) -> str:
         """
         Конвертирует файл в Markdown если возможно
@@ -522,6 +875,14 @@ class YandexDiskUserSyncer:
             # Пустой файл - не конвертируем
             return ""
 
+        # Проверяем кэш - может файл уже сконвертирован
+        if not self.should_convert_file(file_info):
+            # Файл уже сконвертирован, возвращаем путь из БД
+            db_record = self.db.get_file_metadata(file_info['path'])
+            if db_record and db_record.get('markdown_path'):
+                return db_record['markdown_path']
+            return ""
+
         # Проверяем, может ли кто-то из конвертеров обработать файл
         for converter in self.converters:
             if converter.can_convert(local_path):
@@ -532,19 +893,76 @@ class YandexDiskUserSyncer:
                 md_filename = relative_path.name + '.md'
                 md_path = self.markdown_dir / relative_path.parent / md_filename
 
-                # Конвертируем
-                success = converter.convert_safe(local_path, md_path)
+                # Проверяем, это видео конвертер и включена ли асинхронность
+                is_video = self.video_converter and converter == self.video_converter
+                use_async = is_video and config.VIDEO_ASYNC_TRANSCRIPTION
 
-                if success:
+                if use_async:
+                    # Асинхронная обработка видео
+                    operation_id, video_metadata, audio_path = self.video_converter.convert_async(local_path)
+
+                    if operation_id:
+                        # Сохраняем в БД статус "in_progress"
+                        import json
+                        self.db.update_transcription_status(
+                            file_info['path'],
+                            status='in_progress',
+                            operation_id=operation_id,
+                            video_metadata=json.dumps(video_metadata)
+                        )
+
+                        # Запоминаем аудио для удаления позже
+                        if audio_path:
+                            if not hasattr(self, 'pending_audio_files'):
+                                self.pending_audio_files = []
+                            self.pending_audio_files.append(audio_path)
+
+                        logger.info(f"Видео отправлено на асинхронную транскрибацию: {file_info['path']}")
+                        # Не возвращаем MD путь, так как транскрибация еще не завершена
+                        return ""
+                    else:
+                        logger.error(f"Не удалось запустить асинхронную транскрибацию: {file_info['path']}")
+                        return ""
+                else:
+                    # Синхронная конвертация (для всех файлов кроме видео, или если async отключен)
+                    success = converter.convert_safe(local_path, md_path)
+
+                    if not success:
+                        return ""
+
+                # Обработка успешной конвертации (только для синхронных)
+                if not use_async:
                     logger.info(f"Конвертирован в MD: {file_info['path']}")
 
                     # Удаляем оригинал если настроено
                     if config.DELETE_ORIGINALS_AFTER_CONVERSION:
-                        try:
-                            local_path.unlink()
-                            logger.debug(f"Удален оригинал: {file_info['path']}")
-                        except Exception as e:
-                            logger.error(f"Ошибка при удалении оригинала {file_info['path']}: {e}")
+                        # Проверяем существует ли файл (может быть уже удален конвертером, например VideoConverter)
+                        if not local_path.exists():
+                            logger.debug(f"Оригинал уже удален: {file_info['path']}")
+                        else:
+                            import gc
+                            # Принудительная сборка мусора для освобождения файловых дескрипторов
+                            gc.collect()
+
+                            # Пытаемся удалить с retry (особенно важно для Windows)
+                            max_delete_attempts = 3
+                            delete_delay = 0.5  # секунд
+
+                            for attempt in range(max_delete_attempts):
+                                try:
+                                    time.sleep(delete_delay)  # Небольшая задержка перед попыткой
+                                    local_path.unlink()
+                                    logger.debug(f"Удален оригинал: {file_info['path']}")
+                                    break
+                                except PermissionError as e:
+                                    if attempt < max_delete_attempts - 1:
+                                        logger.warning(f"Файл заблокирован, попытка {attempt + 1}/{max_delete_attempts}: {file_info['path']}")
+                                        time.sleep(delete_delay * (attempt + 1))
+                                    else:
+                                        logger.error(f"Не удалось удалить оригинал {file_info['path']} после {max_delete_attempts} попыток: {e}")
+                                except Exception as e:
+                                    logger.error(f"Ошибка при удалении оригинала {file_info['path']}: {e}")
+                                    break
 
                     # Возвращаем относительный путь к MD файлу
                     md_relative = str(md_path.relative_to(self.markdown_dir))
@@ -583,6 +1001,32 @@ class YandexDiskUserSyncer:
         file_path = file_info['path']
         safe_path = sanitize_path(file_path)
         local_path = self.download_dir / safe_path
+
+        # Проверяем метаданные из БД
+        db_record = self.db.get_file_metadata(file_path)
+
+        # Если это видео с транскрибацией в процессе, не скачиваем повторно
+        if db_record and db_record.get('transcription_status') == 'in_progress':
+            logger.debug(f"Видео с транскрибацией в процессе, пропускаем загрузку: {file_path}")
+            return False
+
+        # Если есть MD файл и исходный файл не изменился, не скачиваем
+        if db_record and db_record.get('markdown_path'):
+            md_path = self.markdown_dir / db_record['markdown_path']
+            if md_path.exists():
+                # Проверяем изменился ли файл
+                if (db_record.get('size') == file_info['size'] and
+                    db_record.get('modified') == file_info['modified']):
+                    logger.debug(f"MD файл существует, исходный файл не изменился, пропускаем загрузку: {file_path}")
+                    return False
+
+        # Если файл есть в БД и не изменился (размер + дата), не скачиваем
+        # Даже если локального файла нет (мог быть удален после обработки)
+        if db_record:
+            if (db_record.get('size') == file_info['size'] and
+                db_record.get('modified') == file_info['modified']):
+                logger.debug(f"Файл в БД не изменился, пропускаем загрузку: {file_path}")
+                return False
 
         # Если файл не существует локально, скачиваем
         if not local_path.exists():
@@ -674,6 +1118,9 @@ class YandexDiskUserSyncer:
         # Выводим информацию о конфигурации
         config.print_config_summary()
 
+        # Проверяем незавершенные транскрибации из предыдущих запусков
+        self.check_pending_transcriptions()
+
         # Получаем список всех файлов и папок
         logger.info("Получение списка файлов...")
 
@@ -701,6 +1148,46 @@ class YandexDiskUserSyncer:
 
         logger.info(f"Найдено файлов: {len(all_files)}")
         logger.info(f"Найдено папок: {len(folders_set)}")
+
+        # Ручной выбор папок если включен MANUAL_MODE
+        if config.MANUAL_MODE:
+            # Анализируем папки
+            folders_stats = self.analyze_folders(all_files)
+
+            if not folders_stats:
+                logger.warning("Не найдено папок для анализа")
+                return
+
+            # Интерактивный выбор
+            selected_folders = self.select_folders_interactive(folders_stats)
+
+            if not selected_folders:
+                logger.warning("Синхронизация отменена - папки не выбраны")
+                return
+
+            # Фильтруем файлы по выбранным папкам
+            root_folder = "(корневая папка)"
+            filtered_files = []
+            for file_info in all_files:
+                file_path = file_info['path']
+                path_parts = file_path.split('/')
+
+                # Определяем папку первого уровня
+                if len(path_parts) > 1:
+                    folder_name = path_parts[0]
+                else:
+                    folder_name = root_folder
+
+                # Добавляем файл если его папка выбрана
+                if folder_name in selected_folders:
+                    filtered_files.append(file_info)
+
+            logger.success(f"После фильтрации осталось файлов: {len(filtered_files)}")
+            all_files = filtered_files
+
+            if not all_files:
+                logger.warning("После фильтрации не осталось файлов")
+                return
 
         # Очистка удаленных файлов
         logger.info("Проверка удаленных файлов...")
@@ -781,10 +1268,24 @@ class YandexDiskUserSyncer:
 
             # Обрабатываем успешно скачанные файлы
             if download_result:
-                # Конвертируем файл в Markdown если возможно
-                markdown_path = ""
                 safe_path = sanitize_path(file_info['path'])
                 local_path = self.download_dir / safe_path
+
+                # ВАЖНО: Сохраняем базовые метаданные СРАЗУ после загрузки
+                # Это нужно чтобы запись существовала до конвертации
+                # (для update_transcription_status в VideoConverter)
+                with self.metadata_lock:
+                    self.db.save_file_metadata(
+                        file_path=file_info['path'],
+                        size=file_info['size'],
+                        modified=file_info['modified'],
+                        md5=file_info.get('md5', ''),
+                        is_empty=False,
+                        markdown_path=""  # Пока пусто, обновим после конвертации
+                    )
+
+                # Конвертируем файл в Markdown если возможно
+                markdown_path = ""
 
                 # Проверяем: нужна ли конвертация?
                 # Пропускаем если файл уже был сконвертирован и MD файл существует
@@ -805,17 +1306,13 @@ class YandexDiskUserSyncer:
                     if markdown_path:
                         converted_count += 1
 
-                # Файл скачан полностью - сохраняем в БД
-                with self.metadata_lock:
-                    self.db.save_file_metadata(
-                        file_path=file_info['path'],
-                        size=file_info['size'],
-                        modified=file_info['modified'],
-                        md5=file_info.get('md5', ''),
-                        is_empty=False,
-                        markdown_path=markdown_path
-                    )
+                # Обновляем markdown_path если конвертация была успешной
+                if markdown_path:
+                    with self.metadata_lock:
+                        self.db.update_markdown_path(file_info['path'], markdown_path)
 
+                # Подсчитываем статистику
+                with self.metadata_lock:
                     if is_new:
                         downloaded_count += 1
                     else:
@@ -878,3 +1375,10 @@ class YandexDiskUserSyncer:
         logger.info(f"   Пустых файлов: {db_stats['empty_files']}")
         logger.info(f"   Общий размер: {format_size(db_stats['total_size'])}")
         logger.info("=" * 70)
+
+        # Удаляем временные аудио файлы
+        self.cleanup_pending_audio_files()
+
+        # Ждем завершения всех транскрибаций если включено
+        if config.VIDEO_WAIT_FOR_COMPLETION and config.CONVERT_VIDEO_FILES:
+            self.wait_for_all_transcriptions()

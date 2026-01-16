@@ -25,7 +25,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Папка на диске пользователя для синхронизации
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
-REMOTE_FOLDER_PATH = "/Клиенты/DPD"
+REMOTE_FOLDER_PATH = "/Клиенты/Л'этуаль/2. Встречи/Встреча по бизнес требованиям"
 
 # Базовая папка для всех данных (кроме логов)
 LOCALDATA_DIR = Path("localdata")
@@ -67,19 +67,23 @@ VIDEO_EXTENSIONS = [
 
 # Максимальный размер файла для скачивания (в байтах)
 # Файлы больше этого размера будут пропущены (создан пустой файл)
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 МБ
+MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1 ГБ
 
 # Пропускать файлы больше MAX_FILE_SIZE
 SKIP_LARGE_FILES = True
 
 # Максимальный общий размер скачиваемых файлов (в байтах)
-# После превышения все файлы создаются пустыми
+# После превышения все последующие файлы пропускаются (не скачиваются)
 MAX_TOTAL_SIZE = 10 * 1024 * 1024 * 1024  # 10 ГБ
 
 # Применять ограничение на общий размер
 ENABLE_TOTAL_SIZE_LIMIT = True
 
 # === Параметры синхронизации ===
+# Режим ручного выбора папок для синхронизации
+# Если включен, перед синхронизацией будет показан список папок с анализом
+MANUAL_MODE = False
+
 # Количество потоков для параллельной загрузки файлов
 MAX_WORKERS = 5
 
@@ -185,8 +189,27 @@ VIDEO_MAX_SIZE = 500 * 1024 * 1024  # 500 МБ
 # Максимальное время ожидания транскрибации (секунды)
 VIDEO_TRANSCRIPTION_TIMEOUT = 600  # 10 минут
 
+# Асинхронная обработка видео
+VIDEO_ASYNC_TRANSCRIPTION = (
+    True  # Запускать транскрибацию асинхронно (не ждать завершения)
+)
+
+# Максимальное количество одновременных операций транскрибации
+VIDEO_MAX_CONCURRENT_TRANSCRIPTIONS = 3  # Безопасный лимит для API
+
+# Проверять незавершенные операции при запуске
+VIDEO_CHECK_PENDING_ON_START = True  # Получать результаты из предыдущих запусков
+
+# Ждать завершения всех транскрибаций перед завершением синхронизации
+VIDEO_WAIT_FOR_COMPLETION = True  # Не завершать работу пока все видео не обработаются
+
+# Интервал проверки статуса транскрибации (секунды)
+VIDEO_CHECK_INTERVAL = 30  # Проверять каждые 30 секунд
+
 # Удалять оригинальные файлы после конвертации
-DELETE_ORIGINALS_AFTER_CONVERSION = False
+DELETE_ORIGINALS_AFTER_CONVERSION = (
+    True  # Включено: оригиналы будут удалены после MD конвертации
+)
 
 
 def validate_config():
@@ -228,6 +251,7 @@ def print_config_summary():
     )
     print()
     print(f"Параллельных потоков: {MAX_WORKERS}")
+    print(f"Режим ручного выбора папок: {'да' if MANUAL_MODE else 'нет'}")
     print()
     print("Конвертация в Markdown:")
     print(f"  • Включена: {'да' if ENABLE_MARKDOWN_CONVERSION else 'нет'}")
@@ -246,8 +270,15 @@ def print_config_summary():
         if CONVERT_VIDEO_FILES:
             print(f"    - Макс. размер: {format_size(VIDEO_MAX_SIZE)}")
             print(f"    - Таймаут: {VIDEO_TRANSCRIPTION_TIMEOUT}с")
+            print(f"    - Асинхронная обработка: {'да' if VIDEO_ASYNC_TRANSCRIPTION else 'нет'}")
+            if VIDEO_ASYNC_TRANSCRIPTION:
+                print(f"    - Ждать завершения: {'да' if VIDEO_WAIT_FOR_COMPLETION else 'нет'}")
+                if VIDEO_WAIT_FOR_COMPLETION:
+                    print(f"    - Интервал проверки: {VIDEO_CHECK_INTERVAL}с")
         print(f"  • Папка для MD: {MARKDOWN_OUTPUT_DIR}")
-        print(f"  • Удалять оригиналы: {'да' if DELETE_ORIGINALS_AFTER_CONVERSION else 'нет'}")
+        print(
+            f"  • Удалять оригиналы: {'да' if DELETE_ORIGINALS_AFTER_CONVERSION else 'нет'}"
+        )
     print("=" * 70)
 
 

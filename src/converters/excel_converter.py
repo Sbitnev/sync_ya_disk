@@ -46,8 +46,8 @@ class ExcelConverter(FileConverter):
 
             # Получаем список всех листов
             try:
-                excel_file = pd.ExcelFile(input_path, engine=engine)
-                sheet_names = excel_file.sheet_names
+                with pd.ExcelFile(input_path, engine=engine) as excel_file:
+                    sheet_names = excel_file.sheet_names
             except Exception as e:
                 logger.error(f"Не удалось открыть Excel файл {input_path.name}: {e}")
                 return False

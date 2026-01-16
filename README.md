@@ -10,11 +10,69 @@
 - ✅ Управление схемой БД через Alembic миграции
 - ✅ Инкрементальная синхронизация (пропуск неизмененных файлов)
 - ✅ Автоматическая очистка удаленных файлов
-- ✅ Пропуск видео файлов (создаются пустые)
-- ✅ Пропуск больших файлов >100MB (создаются пустые)
+- ✅ Пропуск больших файлов >1GB (не скачиваются)
 - ✅ Лимит на общий объем загрузки (10GB)
 - ✅ Многопоточная загрузка (5 потоков)
 - ✅ Отслеживание изменений файлов (MD5, дата модификации)
+- ✅ **Конвертация файлов в Markdown** (Word, Excel, PDF, PowerPoint, HTML, CSV, Parquet, RTF, архивы)
+- ✅ **Транскрибация видео в текст** через Yandex SpeechKit (асинхронная обработка)
+- ✅ **Умное кэширование** - пропуск повторной конвертации неизмененных файлов
+- ✅ **Режим ручного выбора папок** - интерактивный выбор папок для синхронизации с анализом содержимого
+- ✅ **Удаление оригиналов** после конвертации в MD (экономия места)
+
+## Системные требования
+
+### Обязательные компоненты
+
+1. **Python 3.7+** с pip
+2. **FFmpeg** - для извлечения аудио из видео файлов (транскрибация)
+   - Windows: https://www.gyan.dev/ffmpeg/builds/ или `choco install ffmpeg`
+   - Linux: `sudo apt-get install ffmpeg`
+   - macOS: `brew install ffmpeg`
+
+3. **Pandoc** - для конвертации старых .doc файлов
+   - Windows: https://github.com/jgm/pandoc/releases/latest или `winget install JohnMacFarlane.Pandoc`
+   - Linux: `sudo apt-get install pandoc`
+   - macOS: `brew install pandoc`
+
+### Python библиотеки
+
+Все необходимые библиотеки перечислены в `requirements.txt`:
+
+```
+requests
+python-dotenv
+loguru
+tqdm
+alembic
+sqlalchemy
+# Конвертация документов
+mammoth          # Word .docx → Markdown
+openpyxl         # Excel
+pdfminer.six     # PDF
+python-pptx      # PowerPoint
+pandas           # CSV, Parquet
+pyarrow          # Parquet
+beautifulsoup4   # HTML
+striprtf         # RTF
+py7zr            # Архивы 7z
+# Обработка видео
+imageio-ffmpeg   # FFmpeg wrapper
+boto3            # AWS S3 для Yandex Object Storage
+```
+
+### Проверка установки
+
+```bash
+# Проверить Python
+python --version
+
+# Проверить FFmpeg
+ffmpeg -version
+
+# Проверить Pandoc
+pandoc --version
+```
 
 ## Быстрый старт
 
@@ -78,16 +136,72 @@ LOCALDATA_DIR = Path("localdata")
 DOWNLOAD_DIR = LOCALDATA_DIR / "downloaded_files"
 
 # Лимиты
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 МБ
+MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1 ГБ
 MAX_TOTAL_SIZE = 10 * 1024 * 1024 * 1024  # 10 ГБ
+```
+
+### Режим ручного выбора папок
+
+```python
+# Включить интерактивный выбор папок перед синхронизацией
+MANUAL_MODE = True
+
+# При включении покажет список папок первого уровня с:
+# - Размером каждой папки
+# - Количеством файлов
+# - Топ-5 типов файлов
+# Можно выбрать конкретные папки для синхронизации
+```
+
+### Конвертация в Markdown
+
+```python
+# Включить конвертацию файлов в Markdown
+ENABLE_MARKDOWN_CONVERSION = True
+
+# Папка для сохранения MD файлов
+MARKDOWN_OUTPUT_DIR = LOCALDATA_DIR / "markdown_files"
+
+# Удалять оригинальные файлы после конвертации (экономия места)
+DELETE_ORIGINALS_AFTER_CONVERSION = True
+
+# Типы файлов для конвертации
+CONVERT_WORD_FILES = True      # .docx, .doc
+CONVERT_EXCEL_FILES = True     # .xlsx, .xls, .xlsm, .xlsb
+CONVERT_PDF_FILES = True       # .pdf
+CONVERT_POWERPOINT_FILES = True # .pptx, .ppt
+CONVERT_CSV_FILES = True       # .csv
+CONVERT_TEXT_FILES = True      # .txt, .md, .py, .json, .xml
+CONVERT_HTML_FILES = True      # .html, .htm
+CONVERT_PARQUET_FILES = True   # .parquet
+CONVERT_RTF_FILES = True       # .rtf
+CONVERT_ARCHIVE_FILES = True   # .zip, .7z, .rar, .tar, .gz
+CONVERT_VIDEO_FILES = True     # Транскрибация видео через Yandex SpeechKit
+```
+
+### Транскрибация видео
+
+```python
+# Асинхронная обработка видео (не ждать завершения транскрибации)
+VIDEO_ASYNC_TRANSCRIPTION = True
+
+# Максимальное количество одновременных операций транскрибации
+VIDEO_MAX_CONCURRENT_TRANSCRIPTIONS = 3
+
+# Проверять незавершенные операции при запуске
+VIDEO_CHECK_PENDING_ON_START = True
+
+# Максимальный размер видео для транскрибации
+VIDEO_MAX_SIZE = 500 * 1024 * 1024  # 500 МБ
+
+# Требуется настроить в .env:
+# - Yandex Cloud API ключ для SpeechKit
+# - S3 бакет для временного хранения аудио
 ```
 
 ### Отключение лимитов
 
 ```python
-# Отключить пропуск видео
-SKIP_VIDEO_FILES = False
-
 # Отключить пропуск больших файлов
 SKIP_LARGE_FILES = False
 
@@ -117,11 +231,16 @@ subject_token_type=urn:yandex:params:oauth:token-type:uid
 ### 3. Синхронизация
 
 1. Рекурсивно сканирует удаленную папку
-2. Проверяет и удаляет файлы, отсутствующие на удаленном диске
-3. Создает структуру папок локально
-4. Скачивает только новые или измененные файлы
-5. Создает пустые файлы для видео и больших файлов
-6. Сохраняет метаданные в SQLite БД сразу после каждого файла
+2. **Режим manual**: Показывает список папок с анализом и ждет выбора пользователя
+3. Проверяет незавершенные транскрибации видео из предыдущих запусков
+4. Проверяет и удаляет файлы, отсутствующие на удаленном диске
+5. Создает структуру папок локально
+6. Скачивает только новые или измененные файлы (проверка через БД)
+7. Пропускает файлы при превышении лимитов размера
+8. **Конвертирует** файлы в Markdown (Word, Excel, PDF, PowerPoint и др.)
+9. **Транскрибирует** видео в текст через Yandex SpeechKit (асинхронно)
+10. Удаляет оригиналы после успешной конвертации (опционально)
+11. Сохраняет метаданные в SQLite БД с отслеживанием статуса конвертации
 
 ### 4. Очистка удаленных файлов
 
@@ -177,9 +296,23 @@ alembic history
 
 ## Требования
 
-- Python 3.7+
-- Сервисное приложение Яндекс 360 с правами на диск
-- ID пользователя организации
+### Системные
+См. раздел [Системные требования](#системные-требования) выше для полного списка.
+
+### Яндекс 360
+- Сервисное приложение Яндекс 360 с правами на диск пользователей
+- ID пользователя организации или email
+
+### Yandex Cloud (для транскрибации видео)
+- API ключ для Yandex SpeechKit
+- S3 бакет для временного хранения аудио файлов
+- Настройки в `.env`:
+  ```env
+  YC_API_KEY=your_yandex_cloud_api_key
+  S3_BUCKET_NAME=your-bucket-name
+  S3_ACCESS_KEY=your_s3_access_key
+  S3_SECRET_KEY=your_s3_secret_key
+  ```
 
 ## Лицензия
 
