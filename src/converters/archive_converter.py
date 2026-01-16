@@ -187,73 +187,103 @@ class ArchiveConverter(FileConverter):
         """Распаковка ZIP архива с правильной обработкой кодировки"""
         import zipfile
 
+        extracted_count = 0
+        skipped_count = 0
+        error_message = None
+
         try:
             with zipfile.ZipFile(archive_path, 'r') as zip_ref:
                 # Извлекаем файлы с правильной кодировкой имен
                 for member in zip_ref.namelist():
-                    # Пробуем определить правильную кодировку для имени файла
                     try:
-                        # Сначала пробуем CP866 (стандарт для русской Windows)
-                        filename = member.encode('cp437').decode('cp866')
-                    except (UnicodeDecodeError, UnicodeEncodeError):
+                        # Пробуем определить правильную кодировку для имени файла
                         try:
-                            # Если не получилось, пробуем UTF-8
-                            filename = member.encode('cp437').decode('utf-8')
+                            # Сначала пробуем CP866 (стандарт для русской Windows)
+                            filename = member.encode('cp437').decode('cp866')
                         except (UnicodeDecodeError, UnicodeEncodeError):
-                            # Если и это не получилось, используем оригинальное имя
-                            filename = member
+                            try:
+                                # Если не получилось, пробуем UTF-8
+                                filename = member.encode('cp437').decode('utf-8')
+                            except (UnicodeDecodeError, UnicodeEncodeError):
+                                # Если и это не получилось, используем оригинальное имя
+                                filename = member
 
-                    # Извлекаем файл с правильным именем
-                    source = zip_ref.open(member)
-                    target_path = extract_dir / filename
+                        # Извлекаем файл с правильным именем
+                        source = zip_ref.open(member)
+                        target_path = extract_dir / filename
 
-                    # Пропускаем директории (они создадутся автоматически при создании файлов)
-                    if filename.endswith('/') or filename.endswith('\\'):
-                        continue
-
-                    # Создаем директории если нужно
-                    try:
-                        target_path.parent.mkdir(parents=True, exist_ok=True)
-                    except OSError as e:
-                        # Возможен конфликт: файл существует на месте директории
-                        if e.winerror == 183 or 'already exists' in str(e).lower():
-                            logger.warning(f"Конфликт имен при создании папки для '{filename}', пропускаем")
+                        # Пропускаем директории (они создадутся автоматически при создании файлов)
+                        if filename.endswith('/') or filename.endswith('\\'):
                             continue
-                        raise
 
-                    # Проверяем конфликт: если target_path существует и это директория
-                    if target_path.exists() and target_path.is_dir():
-                        # Конфликт имен: папка уже существует, но пытаемся создать файл
-                        logger.warning(f"Конфликт имен в архиве: папка '{filename}' уже существует, пропускаем файл")
+                        # Создаем директории если нужно
+                        try:
+                            target_path.parent.mkdir(parents=True, exist_ok=True)
+                        except OSError as e:
+                            # Возможен конфликт: файл существует на месте директории
+                            if e.winerror == 183 or 'already exists' in str(e).lower():
+                                logger.warning(f"Конфликт имен при создании папки для '{filename}', пропускаем")
+                                skipped_count += 1
+                                continue
+                            raise
+
+                        # Проверяем конфликт: если target_path существует и это директория
+                        if target_path.exists() and target_path.is_dir():
+                            # Конфликт имен: папка уже существует, но пытаемся создать файл
+                            logger.warning(f"Конфликт имен в архиве: папка '{filename}' уже существует, пропускаем файл")
+                            skipped_count += 1
+                            continue
+
+                        # Записываем содержимое
+                        try:
+                            with open(target_path, 'wb') as target:
+                                target.write(source.read())
+                            extracted_count += 1
+                        except (PermissionError, OSError) as e:
+                            # Возможно, это попытка создать файл поверх директории
+                            logger.warning(f"Ошибка при записи '{filename}': {e}, пропускаем")
+                            skipped_count += 1
+                            continue
+
+                    except Exception as e:
+                        # Ошибка обработки конкретного файла - пропускаем его
+                        logger.warning(f"Ошибка обработки файла '{member}': {e}, пропускаем")
+                        skipped_count += 1
                         continue
 
-                    # Записываем содержимое
-                    try:
-                        with open(target_path, 'wb') as target:
-                            target.write(source.read())
-                    except (PermissionError, OSError) as e:
-                        # Возможно, это попытка создать файл поверх директории
-                        logger.warning(f"Ошибка при записи '{filename}': {e}, пропускаем")
-                        continue
+        except Exception as e:
+            # Критическая ошибка открытия архива
+            error_message = str(e)
+            logger.error(f"Критическая ошибка открытия ZIP архива: {e}")
 
-            files = list(extract_dir.rglob('*'))
-            files = [f for f in files if f.is_file()]
+        # Собираем список успешно извлеченных файлов
+        files = list(extract_dir.rglob('*'))
+        files = [f for f in files if f.is_file()]
 
+        # Если хотя бы один файл извлечен - считаем частичным успехом
+        if len(files) > 0 or extracted_count > 0:
+            if skipped_count > 0:
+                logger.warning(f"Архив распакован частично: извлечено {extracted_count}, пропущено {skipped_count}")
             return {
                 'success': True,
                 'files': files,
                 'error': None
             }
-        except Exception as e:
+        else:
+            # Ни один файл не извлечен - это ошибка
             return {
                 'success': False,
                 'files': [],
-                'error': str(e)
+                'error': error_message or 'Не удалось извлечь ни одного файла'
             }
 
     def _extract_tar(self, archive_path: Path, extract_dir: Path) -> Dict:
         """Распаковка TAR/GZ архива"""
         import tarfile
+
+        extracted_count = 0
+        skipped_count = 0
+        error_message = None
 
         try:
             with tarfile.open(archive_path, 'r:*') as tar_ref:
@@ -261,27 +291,46 @@ class ArchiveConverter(FileConverter):
                 for member in tar_ref.getmembers():
                     try:
                         tar_ref.extract(member, extract_dir)
+                        if not member.isdir():
+                            extracted_count += 1
                     except OSError as e:
                         # Пропускаем файлы с конфликтами имен
                         if e.winerror == 183 or 'already exists' in str(e).lower():
                             logger.warning(f"Конфликт имен при извлечении '{member.name}', пропускаем")
+                            skipped_count += 1
                             continue
                         logger.warning(f"Ошибка при извлечении '{member.name}': {e}, пропускаем")
+                        skipped_count += 1
+                        continue
+                    except Exception as e:
+                        logger.warning(f"Ошибка обработки '{member.name}': {e}, пропускаем")
+                        skipped_count += 1
                         continue
 
-            files = list(extract_dir.rglob('*'))
-            files = [f for f in files if f.is_file()]
+        except Exception as e:
+            # Критическая ошибка открытия архива
+            error_message = str(e)
+            logger.error(f"Критическая ошибка открытия TAR архива: {e}")
 
+        # Собираем список успешно извлеченных файлов
+        files = list(extract_dir.rglob('*'))
+        files = [f for f in files if f.is_file()]
+
+        # Если хотя бы один файл извлечен - считаем частичным успехом
+        if len(files) > 0 or extracted_count > 0:
+            if skipped_count > 0:
+                logger.warning(f"Архив распакован частично: извлечено {extracted_count}, пропущено {skipped_count}")
             return {
                 'success': True,
                 'files': files,
                 'error': None
             }
-        except Exception as e:
+        else:
+            # Ни один файл не извлечен - это ошибка
             return {
                 'success': False,
                 'files': [],
-                'error': str(e)
+                'error': error_message or 'Не удалось извлечь ни одного файла'
             }
 
     def _extract_7z(self, archive_path: Path, extract_dir: Path) -> Dict:
