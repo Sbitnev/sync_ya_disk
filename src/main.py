@@ -56,29 +56,21 @@ def apply_migrations():
         db_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info("Применение миграций базы данных...")
-        result = subprocess.run(
-            ['alembic', 'upgrade', 'head'],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True
-        )
 
-        if result.returncode != 0:
-            logger.error(f"Ошибка применения миграций: {result.stderr}")
-            return False
+        # Используем API Alembic напрямую
+        from alembic.config import Config
+        from alembic import command
 
-        # Проверяем были ли применены новые миграции
-        # Alembic выводит в stderr, а не в stdout
-        output = result.stdout + result.stderr
-        if "Running upgrade" in output:
-            logger.success("Миграции успешно применены")
-        else:
-            logger.info("База данных актуальна")
+        alembic_cfg = Config(str(project_root / "alembic.ini"))
+        command.upgrade(alembic_cfg, "head")
 
+        logger.success("Миграции успешно применены")
         return True
 
     except Exception as e:
         logger.error(f"Ошибка при применении миграций: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         return False
 
 

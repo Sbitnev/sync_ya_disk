@@ -17,14 +17,15 @@ Client_secret
 user_token
 admin_token
 
-# Скачанные файлы
+# Локальные данные (скачанные файлы, метаданные, markdown)
+localdata/
+
+# Старые пути для обратной совместимости
 downloaded_files/
 downloads/
 test_downloads/
 oauth_downloads/
 markdown_files/
-
-# Метаданные синхронизации
 sync_metadata.json
 metadata/
 failed_downloads.txt

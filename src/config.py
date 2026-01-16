@@ -25,14 +25,20 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Папка на диске пользователя для синхронизации
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
-REMOTE_FOLDER_PATH = "/Клиенты/БЕЗ ПИЛОТА (воронка)/Ашан/тендер/новый запрос/Подача 2"
+REMOTE_FOLDER_PATH = "/Клиенты/DPD"
+
+# Базовая папка для всех данных (кроме логов)
+LOCALDATA_DIR = Path("localdata")
 
 # Локальная папка для скачивания
-DOWNLOAD_DIR = "downloaded_files"
+DOWNLOAD_DIR = LOCALDATA_DIR / "downloaded_files"
 
 # База данных с метаданными о синхронизации
-METADATA_DIR = Path("metadata")
+METADATA_DIR = LOCALDATA_DIR / "metadata"
 METADATA_DB_PATH = METADATA_DIR / "sync_metadata.db"
+
+# Файл с неудачными загрузками
+FAILED_DOWNLOADS_PATH = LOCALDATA_DIR / "failed_downloads.txt"
 
 # Папка для логов
 LOGS_DIR = Path("logs")
@@ -111,7 +117,7 @@ ENABLE_MARKDOWN_CONVERSION = True
 # ENABLE_MARKDOWN_CONVERSION = False
 
 # Папка для сохранения конвертированных markdown файлов
-MARKDOWN_OUTPUT_DIR = "markdown_files"
+MARKDOWN_OUTPUT_DIR = LOCALDATA_DIR / "markdown_files"
 
 # Конвертировать Word документы (.docx, .doc)
 CONVERT_WORD_FILES = True
@@ -200,7 +206,8 @@ def print_config_summary():
     print("=" * 70)
     print(f"Пользователь: {USER_EMAIL} (ID: {USER_ID})")
     print(f"Удаленная папка: {REMOTE_FOLDER_PATH}")
-    print(f"Локальная папка: {DOWNLOAD_DIR}")
+    print(f"Локальная папка данных: {LOCALDATA_DIR}")
+    print(f"Папка загрузок: {DOWNLOAD_DIR}")
     print()
     print("Ограничения:")
     print(f"  • Видео файлы: {'пропускать' if SKIP_VIDEO_FILES else 'скачивать'}")

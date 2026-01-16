@@ -71,8 +71,11 @@ sync_ya_disk/
 # Папка на диске для синхронизации
 REMOTE_FOLDER_PATH = "/Клиенты"
 
-# Локальная папка
-DOWNLOAD_DIR = "downloaded_files"
+# Локальная папка для всех данных (кроме логов)
+LOCALDATA_DIR = Path("localdata")
+
+# Папка для скачанных файлов
+DOWNLOAD_DIR = LOCALDATA_DIR / "downloaded_files"
 
 # Лимиты
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 МБ

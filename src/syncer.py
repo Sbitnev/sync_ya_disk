@@ -838,7 +838,8 @@ class YandexDiskUserSyncer:
 
         # Сохраняем список неудачных файлов
         if failed_files:
-            failed_log = Path('failed_downloads.txt')
+            failed_log = config.FAILED_DOWNLOADS_PATH
+            failed_log.parent.mkdir(parents=True, exist_ok=True)
             with open(failed_log, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(failed_files))
             logger.warning(f"Список неудачно скачанных файлов сохранен в: {failed_log.absolute()}")
