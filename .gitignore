@@ -54,3 +54,6 @@ tmpclaude-*-cwd
 # Временные файлы
 temp_*/
 tmp_*/markdown_files/
+
+# Временные скрипты и тесты
+temp/

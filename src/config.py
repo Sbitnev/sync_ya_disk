@@ -45,7 +45,7 @@ LOGS_DIR = Path("logs")
 
 # === Ограничения на файлы ===
 # Пропускать видео файлы
-SKIP_VIDEO_FILES = True
+SKIP_VIDEO_FILES = False
 
 # Расширения видео файлов
 VIDEO_EXTENSIONS = [
@@ -176,6 +176,15 @@ CONVERT_ARCHIVE_FILES = True
 # Максимальная глубина вложенности архивов (защита от бесконечной рекурсии)
 ARCHIVE_MAX_DEPTH = 10
 
+# Конвертировать видео файлы в текст через транскрибацию
+CONVERT_VIDEO_FILES = True  # Включено для транскрибации видео
+
+# Максимальный размер видео для транскрибации (в байтах)
+VIDEO_MAX_SIZE = 500 * 1024 * 1024  # 500 МБ
+
+# Максимальное время ожидания транскрибации (секунды)
+VIDEO_TRANSCRIPTION_TIMEOUT = 600  # 10 минут
+
 # Удалять оригинальные файлы после конвертации
 DELETE_ORIGINALS_AFTER_CONVERSION = False
 
@@ -233,7 +242,12 @@ def print_config_summary():
         print(f"  • Parquet: {'да' if CONVERT_PARQUET_FILES else 'нет'}")
         print(f"  • RTF: {'да' if CONVERT_RTF_FILES else 'нет'}")
         print(f"  • Archives: {'да' if CONVERT_ARCHIVE_FILES else 'нет'}")
+        print(f"  • Видео (транскрибация): {'да' if CONVERT_VIDEO_FILES else 'нет'}")
+        if CONVERT_VIDEO_FILES:
+            print(f"    - Макс. размер: {format_size(VIDEO_MAX_SIZE)}")
+            print(f"    - Таймаут: {VIDEO_TRANSCRIPTION_TIMEOUT}с")
         print(f"  • Папка для MD: {MARKDOWN_OUTPUT_DIR}")
+        print(f"  • Удалять оригиналы: {'да' if DELETE_ORIGINALS_AFTER_CONVERSION else 'нет'}")
     print("=" * 70)
 
 
