@@ -44,7 +44,7 @@ FAILED_DOWNLOADS_PATH = LOCALDATA_DIR / "failed_downloads.txt"
 LOGS_DIR = Path("logs")
 
 # === Ограничения на файлы ===
-# Пропускать видео файлы (создавать пустые)
+# Пропускать видео файлы
 SKIP_VIDEO_FILES = True
 
 # Расширения видео файлов

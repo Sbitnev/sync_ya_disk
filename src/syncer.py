@@ -400,10 +400,10 @@ class YandexDiskUserSyncer:
 
     def should_create_empty_file(self, file_info):
         """
-        Проверяет, нужно ли создать пустой файл вместо скачивания
+        Проверяет, нужно ли пропустить файл вместо скачивания
 
         :param file_info: Информация о файле
-        :return: (should_create_empty, reason)
+        :return: (should_skip, reason)
         """
         # Проверяем общий лимит загрузки
         if config.ENABLE_TOTAL_SIZE_LIMIT:
@@ -427,33 +427,28 @@ class YandexDiskUserSyncer:
 
     def download_file(self, file_info):
         """
-        Скачивает файл с личного диска пользователя или создает пустой файл
+        Скачивает файл с личного диска пользователя
 
         :param file_info: Информация о файле
-        :return: True если файл обработан успешно
+        :return: True если файл обработан успешно, 'skipped' если пропущен
         """
         # Создаем путь для сохранения файла
         safe_path = sanitize_path(file_info['path'])
         local_path = self.download_dir / safe_path
         local_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Проверяем, нужно ли создать пустой файл
-        should_create_empty, reason = self.should_create_empty_file(file_info)
+        # Проверяем, нужно ли пропустить файл
+        should_skip, reason = self.should_create_empty_file(file_info)
 
-        if should_create_empty:
-            try:
-                local_path.touch()
-                reason_text = {
-                    'video': 'видео',
-                    'large': f'большой файл (>{format_size(config.MAX_FILE_SIZE)})',
-                    'total_limit': f'достигнут лимит {format_size(config.MAX_TOTAL_SIZE)}'
-                }.get(reason, 'неизвестная причина')
+        if should_skip:
+            reason_text = {
+                'video': 'видео',
+                'large': f'большой файл (>{format_size(config.MAX_FILE_SIZE)})',
+                'total_limit': f'достигнут лимит {format_size(config.MAX_TOTAL_SIZE)}'
+            }.get(reason, 'неизвестная причина')
 
-                logger.info(f"Пропущено ({reason_text}), создан пустой файл: {file_info['path']} ({format_size(file_info['size'])})")
-                return True
-            except Exception as e:
-                logger.error(f"Ошибка при создании пустого файла {file_info['path']}: {e}")
-                return False
+            logger.info(f"Пропущено ({reason_text}): {file_info['path']} ({format_size(file_info['size'])})")
+            return 'skipped'
 
         # Скачиваем файл
         # Шаг 1: Получаем ссылку на скачивание
@@ -731,8 +726,8 @@ class YandexDiskUserSyncer:
             if self.should_download(file_info):
                 files_to_download.append(file_info)
                 # Учитываем размер только для файлов, которые будем скачивать
-                should_create_empty, _ = self.should_create_empty_file(file_info)
-                if not should_create_empty:
+                should_skip, _ = self.should_create_empty_file(file_info)
+                if not should_skip:
                     total_download_size += file_info['size']
 
         logger.info("=" * 70)
@@ -763,65 +758,67 @@ class YandexDiskUserSyncer:
 
             existing_metadata = self.db.get_file_metadata(file_info['path'])
             is_new = existing_metadata is None
-            should_create_empty, reason = self.should_create_empty_file(file_info)
+            should_skip, reason = self.should_create_empty_file(file_info)
 
             download_result = self.download_file(file_info)
 
+            # Обрабатываем пропущенные файлы
+            if download_result == 'skipped':
+                # Файл пропущен - НЕ сохраняем в БД для возможности повторной загрузки
+                with self.metadata_lock:
+                    if reason == 'video':
+                        video_count += 1
+                    elif reason == 'large':
+                        large_file_count += 1
+                    elif reason == 'total_limit':
+                        limit_reached_count += 1
+                return (True, file_info['path'])
+
+            # Обрабатываем успешно скачанные файлы
             if download_result:
                 # Конвертируем файл в Markdown если возможно
                 markdown_path = ""
-                if not should_create_empty:
-                    safe_path = sanitize_path(file_info['path'])
-                    local_path = self.download_dir / safe_path
+                safe_path = sanitize_path(file_info['path'])
+                local_path = self.download_dir / safe_path
 
-                    # Проверяем: нужна ли конвертация?
-                    # Пропускаем если файл уже был сконвертирован и MD файл существует
-                    should_convert = True
-                    if existing_metadata and existing_metadata.get('markdown_path'):
-                        # Проверяем существует ли MD файл
-                        existing_md_path = self.markdown_dir / existing_metadata['markdown_path']
-                        if existing_md_path.exists():
-                            # MD файл существует - используем существующий путь
-                            markdown_path = existing_metadata['markdown_path']
-                            should_convert = False
-                            skipped_conversion_count += 1
-                            logger.debug(f"Конвертация пропущена (MD существует): {file_info['path']}")
+                # Проверяем: нужна ли конвертация?
+                # Пропускаем если файл уже был сконвертирован и MD файл существует
+                should_convert = True
+                if existing_metadata and existing_metadata.get('markdown_path'):
+                    # Проверяем существует ли MD файл
+                    existing_md_path = self.markdown_dir / existing_metadata['markdown_path']
+                    if existing_md_path.exists():
+                        # MD файл существует - используем существующий путь
+                        markdown_path = existing_metadata['markdown_path']
+                        should_convert = False
+                        skipped_conversion_count += 1
+                        logger.debug(f"Конвертация пропущена (MD существует): {file_info['path']}")
 
-                    if should_convert:
-                        # Конвертируем файл
-                        markdown_path = self.convert_file_to_markdown(local_path, file_info)
-                        if markdown_path:
-                            converted_count += 1
+                if should_convert:
+                    # Конвертируем файл
+                    markdown_path = self.convert_file_to_markdown(local_path, file_info)
+                    if markdown_path:
+                        converted_count += 1
 
-                # Сохраняем метаданные в БД только для полностью скачанных файлов
-                # Пустые файлы НЕ сохраняем, чтобы они были загружены при следующей синхронизации
+                # Файл скачан полностью - сохраняем в БД
                 with self.metadata_lock:
-                    if should_create_empty:
-                        # Пустой файл - НЕ сохраняем в БД для возможности повторной загрузки
-                        if reason == 'video':
-                            video_count += 1
-                        elif reason == 'large':
-                            large_file_count += 1
-                        elif reason == 'total_limit':
-                            limit_reached_count += 1
-                    else:
-                        # Файл скачан полностью - сохраняем в БД
-                        self.db.save_file_metadata(
-                            file_path=file_info['path'],
-                            size=file_info['size'],
-                            modified=file_info['modified'],
-                            md5=file_info.get('md5', ''),
-                            is_empty=False,
-                            markdown_path=markdown_path
-                        )
+                    self.db.save_file_metadata(
+                        file_path=file_info['path'],
+                        size=file_info['size'],
+                        modified=file_info['modified'],
+                        md5=file_info.get('md5', ''),
+                        is_empty=False,
+                        markdown_path=markdown_path
+                    )
 
-                        if is_new:
-                            downloaded_count += 1
-                        else:
-                            updated_count += 1
+                    if is_new:
+                        downloaded_count += 1
+                    else:
+                        updated_count += 1
 
                 return (True, file_info['path'])
             else:
+                # Ошибка загрузки
                 return (False, file_info['path'])
 
         # Многопоточная загрузка
@@ -850,9 +847,9 @@ class YandexDiskUserSyncer:
         logger.info("=" * 70)
         logger.info(f"Новых файлов скачано: {downloaded_count}")
         logger.info(f"Обновленных файлов: {updated_count}")
-        logger.info(f"Видео (созданы пустые файлы): {video_count}")
-        logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (созданы пустые файлы): {large_file_count}")
-        logger.info(f"Достигнут лимит {format_size(config.MAX_TOTAL_SIZE)} (созданы пустые файлы): {limit_reached_count}")
+        logger.info(f"Видео (пропущено): {video_count}")
+        logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (пропущено): {large_file_count}")
+        logger.info(f"Достигнут лимит {format_size(config.MAX_TOTAL_SIZE)} (пропущено): {limit_reached_count}")
         logger.info(f"Пропущено (без изменений): {skipped_count}")
         if converted_count > 0:
             logger.info(f"Конвертировано в Markdown: {converted_count}")
