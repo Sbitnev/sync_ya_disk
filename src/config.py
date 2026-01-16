@@ -25,7 +25,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Папка на диске пользователя для синхронизации
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
-REMOTE_FOLDER_PATH = "/Клиенты/Л'этуаль/2. Встречи/Встреча по бизнес требованиям"
+REMOTE_FOLDER_PATH = "/Клиенты/Л'этуаль/2. Встречи"
 
 # Базовая папка для всех данных (кроме логов)
 LOCALDATA_DIR = Path("localdata")
@@ -270,9 +270,13 @@ def print_config_summary():
         if CONVERT_VIDEO_FILES:
             print(f"    - Макс. размер: {format_size(VIDEO_MAX_SIZE)}")
             print(f"    - Таймаут: {VIDEO_TRANSCRIPTION_TIMEOUT}с")
-            print(f"    - Асинхронная обработка: {'да' if VIDEO_ASYNC_TRANSCRIPTION else 'нет'}")
+            print(
+                f"    - Асинхронная обработка: {'да' if VIDEO_ASYNC_TRANSCRIPTION else 'нет'}"
+            )
             if VIDEO_ASYNC_TRANSCRIPTION:
-                print(f"    - Ждать завершения: {'да' if VIDEO_WAIT_FOR_COMPLETION else 'нет'}")
+                print(
+                    f"    - Ждать завершения: {'да' if VIDEO_WAIT_FOR_COMPLETION else 'нет'}"
+                )
                 if VIDEO_WAIT_FOR_COMPLETION:
                     print(f"    - Интервал проверки: {VIDEO_CHECK_INTERVAL}с")
         print(f"  • Папка для MD: {MARKDOWN_OUTPUT_DIR}")

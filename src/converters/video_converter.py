@@ -184,24 +184,26 @@ class VideoConverter(FileConverter):
             if not audio_path:
                 return (None, None, None)
 
-            # Удаляем оригинальное видео сразу после извлечения аудио
-            try:
-                input_path.unlink()
-                logger.info(f"Видео удалено после извлечения аудио: {video_metadata['name']} ({video_metadata['size_mb']:.1f} МБ освобождено)")
-            except Exception as e:
-                logger.warning(f"Не удалось удалить видео {video_metadata['name']}: {e}")
-
             # 2. Загрузить аудио в S3
             s3_uri = self._upload_to_s3(audio_path)
             if not s3_uri:
+                # Не удалось загрузить в S3, оставляем видео файл на месте
                 return (None, None, None)
 
             # 3. Запустить транскрибацию (но не ждать)
             operation_id = self._start_recognition(s3_uri)
             if not operation_id:
+                # Не удалось запустить транскрибацию, оставляем видео файл на месте
                 return (None, None, None)
 
             logger.success(f"Транскрибация запущена асинхронно: {video_metadata['name']} (operation_id: {operation_id})")
+
+            # 4. Удаляем оригинальное видео ТОЛЬКО после успешного запуска транскрибации
+            try:
+                input_path.unlink()
+                logger.info(f"Видео удалено после успешного запуска транскрибации: {video_metadata['name']} ({video_metadata['size_mb']:.1f} МБ освобождено)")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить видео {video_metadata['name']}: {e}")
 
             # Возвращаем operation_id, метаданные и путь к аудио (для удаления позже)
             return (operation_id, video_metadata, audio_path)
