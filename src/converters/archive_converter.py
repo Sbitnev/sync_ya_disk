@@ -207,12 +207,34 @@ class ArchiveConverter(FileConverter):
                     source = zip_ref.open(member)
                     target_path = extract_dir / filename
 
+                    # Пропускаем директории (они создадутся автоматически при создании файлов)
+                    if filename.endswith('/') or filename.endswith('\\'):
+                        continue
+
                     # Создаем директории если нужно
-                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        target_path.parent.mkdir(parents=True, exist_ok=True)
+                    except OSError as e:
+                        # Возможен конфликт: файл существует на месте директории
+                        if e.winerror == 183 or 'already exists' in str(e).lower():
+                            logger.warning(f"Конфликт имен при создании папки для '{filename}', пропускаем")
+                            continue
+                        raise
+
+                    # Проверяем конфликт: если target_path существует и это директория
+                    if target_path.exists() and target_path.is_dir():
+                        # Конфликт имен: папка уже существует, но пытаемся создать файл
+                        logger.warning(f"Конфликт имен в архиве: папка '{filename}' уже существует, пропускаем файл")
+                        continue
 
                     # Записываем содержимое
-                    with open(target_path, 'wb') as target:
-                        target.write(source.read())
+                    try:
+                        with open(target_path, 'wb') as target:
+                            target.write(source.read())
+                    except (PermissionError, OSError) as e:
+                        # Возможно, это попытка создать файл поверх директории
+                        logger.warning(f"Ошибка при записи '{filename}': {e}, пропускаем")
+                        continue
 
             files = list(extract_dir.rglob('*'))
             files = [f for f in files if f.is_file()]
@@ -235,7 +257,17 @@ class ArchiveConverter(FileConverter):
 
         try:
             with tarfile.open(archive_path, 'r:*') as tar_ref:
-                tar_ref.extractall(extract_dir)
+                # Извлекаем с обработкой ошибок для каждого файла
+                for member in tar_ref.getmembers():
+                    try:
+                        tar_ref.extract(member, extract_dir)
+                    except OSError as e:
+                        # Пропускаем файлы с конфликтами имен
+                        if e.winerror == 183 or 'already exists' in str(e).lower():
+                            logger.warning(f"Конфликт имен при извлечении '{member.name}', пропускаем")
+                            continue
+                        logger.warning(f"Ошибка при извлечении '{member.name}': {e}, пропускаем")
+                        continue
 
             files = list(extract_dir.rglob('*'))
             files = [f for f in files if f.is_file()]
