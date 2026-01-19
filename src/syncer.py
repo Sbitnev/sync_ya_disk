@@ -1270,10 +1270,11 @@ class YandexDiskUserSyncer:
         limit_reached_count = 0
         converted_count = 0
         skipped_conversion_count = 0
+        error_count = 0
         failed_files = []
 
         def process_file(file_info):
-            nonlocal downloaded_count, updated_count, video_count, image_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count
+            nonlocal downloaded_count, updated_count, video_count, image_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count, error_count
 
             existing_metadata = self.db.get_file_metadata(file_info['path'])
             is_new = existing_metadata is None
@@ -1300,21 +1301,25 @@ class YandexDiskUserSyncer:
                 safe_path = sanitize_path(file_info['path'])
                 local_path = self.download_dir / safe_path
 
-                # ВАЖНО: Сохраняем базовые метаданные СРАЗУ после загрузки
-                # Это нужно чтобы запись существовала до конвертации
-                # (для update_transcription_status в VideoConverter)
-                with self.metadata_lock:
-                    self.db.save_file_metadata(
-                        file_path=file_info['path'],
-                        size=file_info['size'],
-                        modified=file_info['modified'],
-                        md5=file_info.get('md5', ''),
-                        is_empty=False,
-                        markdown_path=""  # Пока пусто, обновим после конвертации
-                    )
+                # Проверяем: это видео файл?
+                is_video_file = self.video_converter and self.video_converter.can_convert(local_path)
+
+                # Для видео сохраняем метаданные ДО конвертации
+                # Это нужно для update_transcription_status в VideoConverter
+                if is_video_file:
+                    with self.metadata_lock:
+                        self.db.save_file_metadata(
+                            file_path=file_info['path'],
+                            size=file_info['size'],
+                            modified=file_info['modified'],
+                            md5=file_info.get('md5', ''),
+                            is_empty=False,
+                            markdown_path=""  # Пока пусто, обновим после конвертации
+                        )
 
                 # Конвертируем файл в Markdown если возможно
                 markdown_path = ""
+                conversion_attempted = False
 
                 # Проверяем: нужна ли конвертация?
                 # Пропускаем если файл уже был сконвертирован и MD файл существует
@@ -1331,12 +1336,45 @@ class YandexDiskUserSyncer:
 
                 if should_convert:
                     # Конвертируем файл
+                    conversion_attempted = True
                     markdown_path = self.convert_file_to_markdown(local_path, file_info)
                     if markdown_path:
                         converted_count += 1
 
-                # Обновляем markdown_path если конвертация была успешной
-                if markdown_path:
+                # Проверяем результат конвертации
+                conversion_failed = conversion_attempted and not markdown_path and not is_video_file
+
+                if conversion_failed:
+                    # Конвертация провалилась для не-видео файла
+                    # НЕ сохраняем в БД - это позволит повторить попытку при следующей синхронизации
+                    logger.error(f"Ошибка конвертации {file_info['path']}: файл не добавлен в БД")
+                    with self.metadata_lock:
+                        error_count += 1
+
+                    # Удаляем скачанный файл, чтобы освободить место
+                    if local_path.exists():
+                        try:
+                            local_path.unlink()
+                            logger.debug(f"Удален файл с ошибкой конвертации: {local_path}")
+                        except Exception as e:
+                            logger.warning(f"Не удалось удалить файл с ошибкой: {e}")
+
+                    return (False, file_info['path'])
+
+                # Для НЕ-видео файлов сохраняем в БД только после успешной конвертации
+                if not is_video_file:
+                    with self.metadata_lock:
+                        self.db.save_file_metadata(
+                            file_path=file_info['path'],
+                            size=file_info['size'],
+                            modified=file_info['modified'],
+                            md5=file_info.get('md5', ''),
+                            is_empty=False,
+                            markdown_path=markdown_path  # Сохраняем результат конвертации
+                        )
+
+                # Обновляем markdown_path для видео если конвертация была успешной
+                if is_video_file and markdown_path:
                     with self.metadata_lock:
                         self.db.update_markdown_path(file_info['path'], markdown_path)
 
@@ -1349,7 +1387,9 @@ class YandexDiskUserSyncer:
 
                 return (True, file_info['path'])
             else:
-                # Ошибка загрузки
+                # Ошибка загрузки - НЕ сохраняем в БД
+                with self.metadata_lock:
+                    error_count += 1
                 return (False, file_info['path'])
 
         # Многопоточная загрузка
@@ -1391,6 +1431,8 @@ class YandexDiskUserSyncer:
             logger.warning(f"Удалено (отсутствуют на диске): {deleted_local}")
         if deleted_folders > 0:
             logger.warning(f"Удалено пустых папок: {deleted_folders}")
+        if error_count > 0:
+            logger.error(f"Ошибок при обработке: {error_count}")
         if failed_files:
             logger.warning(f"Не удалось скачать: {len(failed_files)}")
         logger.info(f"Всего файлов: {len(all_files)}")
