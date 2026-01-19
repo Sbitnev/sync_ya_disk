@@ -6,6 +6,7 @@ from pathlib import Path
 from loguru import logger
 
 from .base import FileConverter
+from .. import config
 
 
 class WordConverter(FileConverter):
@@ -80,8 +81,22 @@ class WordConverter(FileConverter):
         try:
             import mammoth
 
+            # Проверяем, нужно ли заменять изображения на заглушки
+            replace_images = hasattr(config, 'REPLACE_IMAGES_WITH_PLACEHOLDERS') and config.REPLACE_IMAGES_WITH_PLACEHOLDERS
+
             with open(input_path, 'rb') as docx_file:
-                result = mammoth.convert_to_markdown(docx_file)
+                if replace_images:
+                    # Используем конвертер с заменой изображений на заглушки
+                    def convert_image(image):
+                        return {"alt": "[Изображение удалено]"}
+
+                    result = mammoth.convert_to_markdown(
+                        docx_file,
+                        convert_image=mammoth.images.img_element(convert_image)
+                    )
+                else:
+                    result = mammoth.convert_to_markdown(docx_file)
+
                 markdown_content = result.value
 
                 # Добавляем метаданные
@@ -112,17 +127,27 @@ class WordConverter(FileConverter):
         :return: True если успешно
         """
         try:
+            # Проверяем, нужно ли заменять изображения на заглушки
+            replace_images = hasattr(config, 'REPLACE_IMAGES_WITH_PLACEHOLDERS') and config.REPLACE_IMAGES_WITH_PLACEHOLDERS
+
+            # Формируем команду pandoc
+            pandoc_cmd = [
+                'pandoc',
+                str(input_path),
+                '-f', 'docx' if input_path.suffix.lower() == '.docx' else 'doc',
+                '-t', 'markdown',
+                '--wrap=none',  # Не переносить строки
+                '-o', str(output_path)
+            ]
+
+            # Если НЕ заменяем изображения - извлекаем медиа
+            if not replace_images:
+                pandoc_cmd.insert(-2, '--extract-media')
+                pandoc_cmd.insert(-2, str(output_path.parent / 'media'))
+
             # Запускаем pandoc
             result = subprocess.run(
-                [
-                    'pandoc',
-                    str(input_path),
-                    '-f', 'docx' if input_path.suffix.lower() == '.docx' else 'doc',
-                    '-t', 'markdown',
-                    '--wrap=none',  # Не переносить строки
-                    '--extract-media', str(output_path.parent / 'media'),  # Извлечь медиа (но мы игнорируем)
-                    '-o', str(output_path)
-                ],
+                pandoc_cmd,
                 capture_output=True,
                 timeout=60,
                 text=True

@@ -1,8 +1,9 @@
 """
-Конвертер Parquet файлов в Markdown
+Конвертер Parquet файлов в Markdown или CSV
 """
 from pathlib import Path
 from .base import FileConverter
+from .. import config
 
 
 class ParquetConverter(FileConverter):
@@ -36,10 +37,10 @@ class ParquetConverter(FileConverter):
 
     def convert(self, input_path: Path, output_path: Path) -> bool:
         """
-        Конвертирует Parquet в Markdown
+        Конвертирует Parquet в Markdown или CSV (в зависимости от настройки PARQUET_TO_CSV)
 
         :param input_path: Путь к исходному файлу
-        :param output_path: Путь для сохранения markdown файла
+        :param output_path: Путь для сохранения markdown или csv файла
         :return: True если конвертация успешна
         """
         if not self.has_pandas:
@@ -50,6 +51,48 @@ class ParquetConverter(FileConverter):
             print(f"pyarrow не установлен. Установите: pip install pyarrow")
             return False
 
+        # Проверяем, нужно ли сохранять как CSV
+        if hasattr(config, 'PARQUET_TO_CSV') and config.PARQUET_TO_CSV:
+            # Изменяем расширение output_path на .csv
+            output_path = output_path.with_suffix('.csv')
+            return self._convert_to_csv(input_path, output_path)
+        else:
+            return self._convert_to_markdown(input_path, output_path)
+
+    def _convert_to_csv(self, input_path: Path, output_path: Path) -> bool:
+        """
+        Конвертирует Parquet в CSV
+
+        :param input_path: Путь к исходному файлу
+        :param output_path: Путь для сохранения CSV файла
+        :return: True если конвертация успешна
+        """
+        import pandas as pd
+
+        try:
+            # Читаем parquet файл
+            df = pd.read_parquet(input_path)
+
+            # Создаем директорию для выходного файла
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Сохраняем как CSV
+            df.to_csv(output_path, index=False, encoding='utf-8-sig')
+
+            return True
+
+        except Exception as e:
+            print(f"Ошибка при конвертации Parquet -> CSV {input_path}: {e}")
+            return False
+
+    def _convert_to_markdown(self, input_path: Path, output_path: Path) -> bool:
+        """
+        Конвертирует Parquet в Markdown
+
+        :param input_path: Путь к исходному файлу
+        :param output_path: Путь для сохранения markdown файла
+        :return: True если конвертация успешна
+        """
         try:
             return self._convert_with_pandas(input_path, output_path)
         except Exception as e:

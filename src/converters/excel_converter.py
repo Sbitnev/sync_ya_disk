@@ -1,11 +1,13 @@
 """
-Конвертер Excel файлов (.xlsx, .xls, .xlsm, .xlsb) в Markdown
+Конвертер Excel файлов (.xlsx, .xls, .xlsm, .xlsb) в Markdown или CSV
 """
 from pathlib import Path
 import pandas as pd
+import re
 from loguru import logger
 
 from .base import FileConverter
+from .. import config
 
 
 class ExcelConverter(FileConverter):
@@ -27,7 +29,119 @@ class ExcelConverter(FileConverter):
         self.max_columns = max_columns
         self.sheets_limit = sheets_limit
 
+    def _sanitize_sheet_name(self, sheet_name: str) -> str:
+        """
+        Очищает название листа от запрещенных символов для использования в имени файла
+
+        :param sheet_name: Название листа
+        :return: Безопасное название для имени файла
+        """
+        # Запрещенные символы в Windows: < > : " / \ | ? *
+        # В Linux/Mac: / и null
+        forbidden_chars = r'[<>:"/\\|?*\x00-\x1f]'
+
+        # Заменяем запрещенные символы на подчеркивание
+        safe_name = re.sub(forbidden_chars, '_', sheet_name)
+
+        # Убираем множественные подчеркивания
+        safe_name = re.sub(r'_+', '_', safe_name)
+
+        # Убираем подчеркивания в начале и конце
+        safe_name = safe_name.strip('_')
+
+        # Ограничиваем длину (Windows имеет лимит 255 символов на путь)
+        # Оставляем 50 символов для названия листа
+        if len(safe_name) > 50:
+            safe_name = safe_name[:50].rstrip('_')
+
+        # Если после очистки название пустое - используем placeholder
+        if not safe_name or safe_name.isspace():
+            safe_name = "Лист"
+
+        return safe_name
+
     def convert(self, input_path: Path, output_path: Path) -> bool:
+        """
+        Конвертирует Excel файл в Markdown или CSV (в зависимости от настройки EXCEL_TO_CSV)
+
+        :param input_path: Путь к Excel файлу
+        :param output_path: Путь к .md или .csv файлу
+        :return: True если успешно
+        """
+        # Проверяем, нужно ли сохранять как CSV
+        if hasattr(config, 'EXCEL_TO_CSV') and config.EXCEL_TO_CSV:
+            # Изменяем расширение output_path на .csv
+            output_path = output_path.with_suffix('.csv')
+            return self._convert_to_csv(input_path, output_path)
+        else:
+            return self._convert_to_markdown(input_path, output_path)
+
+    def _convert_to_csv(self, input_path: Path, output_path: Path) -> bool:
+        """
+        Конвертирует Excel файл в CSV
+
+        :param input_path: Путь к Excel файлу
+        :param output_path: Путь к .csv файлу
+        :return: True если успешно
+        """
+        try:
+            # Для .xls используем xlrd engine
+            engine = 'openpyxl'
+            if input_path.suffix.lower() == '.xls':
+                engine = 'xlrd'
+            elif input_path.suffix.lower() == '.xlsb':
+                engine = 'pyxlsb'
+
+            # Получаем список всех листов
+            try:
+                with pd.ExcelFile(input_path, engine=engine) as excel_file:
+                    sheet_names = excel_file.sheet_names
+            except Exception as e:
+                logger.error(f"Не удалось открыть Excel файл {input_path.name}: {e}")
+                return False
+
+            # Если один лист - сохраняем как есть
+            if len(sheet_names) == 1:
+                df = pd.read_excel(input_path, sheet_name=sheet_names[0], engine=engine)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                df.to_csv(output_path, index=False, encoding='utf-8-sig')
+                logger.debug(f"Excel -> CSV (1 лист): {input_path.name}")
+                return True
+
+            # Если несколько листов - сохраняем каждый в отдельный CSV
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            base_name = output_path.stem
+
+            for i, sheet_name in enumerate(sheet_names):
+                try:
+                    df = pd.read_excel(input_path, sheet_name=sheet_name, engine=engine)
+
+                    # Пропускаем пустые листы
+                    if df.empty:
+                        continue
+
+                    # Очищаем название листа от запрещенных символов
+                    safe_sheet_name = self._sanitize_sheet_name(sheet_name)
+
+                    # Создаем имя файла: номер + название листа
+                    # Например: продажи.xlsx_лист1_Январь.csv, продажи.xlsx_лист2_Февраль.csv
+                    sheet_output_path = output_path.parent / f"{base_name}_лист{i+1}_{safe_sheet_name}.csv"
+
+                    df.to_csv(sheet_output_path, index=False, encoding='utf-8-sig')
+                    logger.debug(f"Excel -> CSV (лист {i+1} '{sheet_name}'): {sheet_output_path.name}")
+
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке листа '{sheet_name}': {e}")
+                    continue
+
+            logger.debug(f"Excel -> CSV ({len(sheet_names)} листов): {input_path.name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Ошибка конвертации Excel -> CSV {input_path.name}: {e}")
+            return False
+
+    def _convert_to_markdown(self, input_path: Path, output_path: Path) -> bool:
         """
         Конвертирует Excel файл в Markdown
 

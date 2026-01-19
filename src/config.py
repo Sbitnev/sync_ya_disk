@@ -44,8 +44,8 @@ FAILED_DOWNLOADS_PATH = LOCALDATA_DIR / "failed_downloads.txt"
 LOGS_DIR = Path("logs")
 
 # === Ограничения на файлы ===
-# Пропускать видео файлы
-SKIP_VIDEO_FILES = False
+# Пропускать видео файлы (не загружать и не обрабатывать)
+SKIP_VIDEO_FILES = True
 
 # Расширения видео файлов
 VIDEO_EXTENSIONS = [
@@ -63,6 +63,23 @@ VIDEO_EXTENSIONS = [
     ".ogv",
     ".vob",
     ".ts",
+]
+
+# Пропускать файлы изображений (не загружать и не обрабатывать)
+SKIP_IMAGE_FILES = True
+
+# Расширения файлов изображений
+IMAGE_EXTENSIONS = [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".svg",
+    ".webp",
+    ".ico",
 ]
 
 # Максимальный размер файла для скачивания (в байтах)
@@ -125,6 +142,8 @@ MARKDOWN_OUTPUT_DIR = LOCALDATA_DIR / "markdown_files"
 
 # Конвертировать Word документы (.docx, .doc)
 CONVERT_WORD_FILES = True
+# Заменять изображения в документах на текстовые заглушки
+REPLACE_IMAGES_WITH_PLACEHOLDERS = True
 
 # Конвертировать CSV файлы
 CONVERT_CSV_FILES = True
@@ -135,8 +154,9 @@ CSV_MAX_ROWS = None
 # Максимальное количество столбцов в CSV для отображения (None = без ограничений)
 CSV_MAX_COLUMNS = None
 
-# Конвертировать Excel файлы (.xlsx, .xls, .xlsm, .xlsb)
+# Конвертировать Excel файлы (.xlsx, .xls, .xlsm, .xlsb) в CSV
 CONVERT_EXCEL_FILES = True
+EXCEL_TO_CSV = True  # Сохранять как CSV вместо Markdown
 
 # Максимальное количество строк в Excel для отображения в markdown (None = без ограничений)
 EXCEL_MAX_ROWS = None
@@ -162,8 +182,9 @@ CONVERT_POWERPOINT_FILES = True
 # Конвертировать HTML файлы (.html, .htm)
 CONVERT_HTML_FILES = True
 
-# Конвертировать Parquet файлы (.parquet)
+# Конвертировать Parquet файлы (.parquet) в CSV
 CONVERT_PARQUET_FILES = True
+PARQUET_TO_CSV = True  # Сохранять как CSV вместо Markdown
 
 # Максимальное количество строк в Parquet для отображения в markdown (None = без ограничений)
 PARQUET_MAX_ROWS = None
@@ -181,7 +202,7 @@ CONVERT_ARCHIVE_FILES = True
 ARCHIVE_MAX_DEPTH = 10
 
 # Конвертировать видео файлы в текст через транскрибацию
-CONVERT_VIDEO_FILES = True  # Включено для транскрибации видео
+CONVERT_VIDEO_FILES = False  # Отключено: видео полностью пропускаются
 
 # Максимальный размер видео для транскрибации (в байтах)
 VIDEO_MAX_SIZE = 500 * 1024 * 1024  # 500 МБ
@@ -243,6 +264,7 @@ def print_config_summary():
     print()
     print("Ограничения:")
     print(f"  • Видео файлы: {'пропускать' if SKIP_VIDEO_FILES else 'скачивать'}")
+    print(f"  • Файлы изображений: {'пропускать' if SKIP_IMAGE_FILES else 'скачивать'}")
     print(
         f"  • Большие файлы (>{format_size(MAX_FILE_SIZE)}): {'пропускать' if SKIP_LARGE_FILES else 'скачивать'}"
     )

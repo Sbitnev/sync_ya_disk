@@ -707,6 +707,14 @@ class YandexDiskUserSyncer:
         file_ext = Path(filename).suffix.lower()
         return file_ext in config.VIDEO_EXTENSIONS
 
+    def is_image_file(self, filename):
+        """Проверяет, является ли файл изображением"""
+        if not config.SKIP_IMAGE_FILES:
+            return False
+
+        file_ext = Path(filename).suffix.lower()
+        return file_ext in config.IMAGE_EXTENSIONS
+
     def is_large_file(self, size):
         """Проверяет, является ли файл слишком большим"""
         if not config.SKIP_LARGE_FILES:
@@ -735,6 +743,10 @@ class YandexDiskUserSyncer:
         if self.is_video_file(file_info['name']):
             return True, "video"
 
+        # Проверяем изображения
+        if self.is_image_file(file_info['name']):
+            return True, "image"
+
         # Проверяем размер файла
         if self.is_large_file(file_info['size']):
             return True, "large"
@@ -759,6 +771,7 @@ class YandexDiskUserSyncer:
         if should_skip:
             reason_text = {
                 'video': 'видео',
+                'image': 'изображение',
                 'large': f'большой файл (>{format_size(config.MAX_FILE_SIZE)})',
                 'total_limit': f'достигнут лимит {format_size(config.MAX_TOTAL_SIZE)}'
             }.get(reason, 'неизвестная причина')
@@ -886,11 +899,24 @@ class YandexDiskUserSyncer:
         # Проверяем, может ли кто-то из конвертеров обработать файл
         for converter in self.converters:
             if converter.can_convert(local_path):
-                # Создаем путь для markdown файла
+                # Определяем расширение выходного файла
+                # Для Excel и Parquet с включенным CSV режимом используем .csv
+                # Для остальных используем .md
+                file_ext = local_path.suffix.lower()
+
+                # Проверяем, нужно ли сохранять как CSV
+                use_csv = False
+                if file_ext in ['.xlsx', '.xls', '.xlsm', '.xlsb']:
+                    use_csv = hasattr(config, 'EXCEL_TO_CSV') and config.EXCEL_TO_CSV
+                elif file_ext == '.parquet':
+                    use_csv = hasattr(config, 'PARQUET_TO_CSV') and config.PARQUET_TO_CSV
+
+                # Создаем путь для выходного файла
                 # Сохраняем оригинальное расширение в имени, чтобы избежать конфликтов
-                # Например: report.docx → report.docx.md, report.pdf → report.pdf.md
+                # Например: report.xlsx → report.xlsx.csv, report.pdf → report.pdf.md
                 relative_path = local_path.relative_to(self.download_dir)
-                md_filename = relative_path.name + '.md'
+                output_extension = '.csv' if use_csv else '.md'
+                md_filename = relative_path.name + output_extension
                 md_path = self.markdown_dir / relative_path.parent / md_filename
 
                 # Проверяем, это видео конвертер и включена ли асинхронность
@@ -1239,6 +1265,7 @@ class YandexDiskUserSyncer:
         updated_count = 0
         skipped_count = len(all_files) - len(files_to_download)
         video_count = 0
+        image_count = 0
         large_file_count = 0
         limit_reached_count = 0
         converted_count = 0
@@ -1246,7 +1273,7 @@ class YandexDiskUserSyncer:
         failed_files = []
 
         def process_file(file_info):
-            nonlocal downloaded_count, updated_count, video_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count
+            nonlocal downloaded_count, updated_count, video_count, image_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count
 
             existing_metadata = self.db.get_file_metadata(file_info['path'])
             is_new = existing_metadata is None
@@ -1260,6 +1287,8 @@ class YandexDiskUserSyncer:
                 with self.metadata_lock:
                     if reason == 'video':
                         video_count += 1
+                    elif reason == 'image':
+                        image_count += 1
                     elif reason == 'large':
                         large_file_count += 1
                     elif reason == 'total_limit':
@@ -1350,6 +1379,7 @@ class YandexDiskUserSyncer:
         logger.info(f"Новых файлов скачано: {downloaded_count}")
         logger.info(f"Обновленных файлов: {updated_count}")
         logger.info(f"Видео (пропущено): {video_count}")
+        logger.info(f"Изображения (пропущено): {image_count}")
         logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (пропущено): {large_file_count}")
         logger.info(f"Достигнут лимит {format_size(config.MAX_TOTAL_SIZE)} (пропущено): {limit_reached_count}")
         logger.info(f"Пропущено (без изменений): {skipped_count}")
