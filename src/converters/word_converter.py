@@ -20,9 +20,10 @@ class WordConverter(FileConverter):
         super().__init__(['.docx', '.doc'])
         self.has_mammoth = self._check_mammoth()
         self.has_pandoc = self._check_pandoc()
+        self.has_libreoffice = self._check_libreoffice()
 
-        if not self.has_mammoth and not self.has_pandoc:
-            logger.warning("Ни mammoth, ни pandoc не найдены. Конвертация Word файлов недоступна.")
+        if not self.has_mammoth and not self.has_pandoc and not self.has_libreoffice:
+            logger.warning("Ни mammoth, ни pandoc, ни LibreOffice не найдены. Конвертация Word файлов недоступна.")
 
     def _check_mammoth(self) -> bool:
         """Проверяет наличие библиотеки mammoth"""
@@ -44,6 +45,25 @@ class WordConverter(FileConverter):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
+    def _check_libreoffice(self) -> bool:
+        """Проверяет наличие LibreOffice в системе"""
+        # Пробуем разные команды для разных ОС
+        commands = ['soffice', 'libreoffice', 'loffice']
+
+        for cmd in commands:
+            try:
+                result = subprocess.run(
+                    [cmd, '--version'],
+                    capture_output=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    return True
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+        return False
+
     def convert(self, input_path: Path, output_path: Path) -> bool:
         """
         Конвертирует Word документ в Markdown
@@ -59,12 +79,13 @@ class WordConverter(FileConverter):
             elif self.has_pandoc:
                 return self._convert_with_pandoc(input_path, output_path)
 
-        # Для .doc используем только pandoc
+        # Для .doc используем LibreOffice (pandoc не поддерживает .doc)
         elif input_path.suffix.lower() == '.doc':
-            if self.has_pandoc:
-                return self._convert_with_pandoc(input_path, output_path)
+            if self.has_libreoffice:
+                return self._convert_doc_with_libreoffice(input_path, output_path)
             else:
-                logger.error(f"Для конвертации .doc файлов требуется pandoc")
+                logger.warning(f"LibreOffice не найден. Невозможно конвертировать старый формат .doc: {input_path.name}")
+                logger.info(f"Установите LibreOffice для поддержки .doc файлов: https://www.libreoffice.org/download/")
                 return False
 
         logger.error(f"Невозможно сконвертировать {input_path}: нет доступных инструментов")
@@ -166,6 +187,92 @@ class WordConverter(FileConverter):
             return False
         except Exception as e:
             logger.error(f"Ошибка pandoc конвертации {input_path.name}: {e}")
+            return False
+
+    def _convert_doc_with_libreoffice(self, input_path: Path, output_path: Path) -> bool:
+        """
+        Конвертация .doc файлов с использованием LibreOffice
+
+        :param input_path: Путь к .doc файлу
+        :param output_path: Путь к .md файлу
+        :return: True если успешно
+        """
+        import tempfile
+        import shutil
+
+        try:
+            # Создаем временную директорию для промежуточных файлов
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir_path = Path(temp_dir)
+
+                # Определяем команду LibreOffice
+                soffice_cmd = None
+                for cmd in ['soffice', 'libreoffice', 'loffice']:
+                    try:
+                        result = subprocess.run(
+                            [cmd, '--version'],
+                            capture_output=True,
+                            timeout=5
+                        )
+                        if result.returncode == 0:
+                            soffice_cmd = cmd
+                            break
+                    except (FileNotFoundError, subprocess.TimeoutExpired):
+                        continue
+
+                if not soffice_cmd:
+                    logger.error("LibreOffice не найден")
+                    return False
+
+                # Шаг 1: Конвертируем .doc в .docx через LibreOffice
+                logger.debug(f"Конвертация .doc → .docx через LibreOffice: {input_path.name}")
+
+                result = subprocess.run(
+                    [
+                        soffice_cmd,
+                        '--headless',
+                        '--convert-to', 'docx',
+                        '--outdir', str(temp_dir_path),
+                        str(input_path)
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                    text=True
+                )
+
+                if result.returncode != 0:
+                    logger.error(f"LibreOffice ошибка при конвертации {input_path.name}: {result.stderr}")
+                    return False
+
+                # Находим созданный .docx файл
+                docx_file = temp_dir_path / f"{input_path.stem}.docx"
+
+                if not docx_file.exists():
+                    logger.error(f"LibreOffice не создал .docx файл: {docx_file}")
+                    return False
+
+                # Шаг 2: Конвертируем .docx в markdown используя существующий метод
+                logger.debug(f"Конвертация .docx → .md: {docx_file.name}")
+
+                if self.has_mammoth:
+                    success = self._convert_with_mammoth(docx_file, output_path)
+                elif self.has_pandoc:
+                    success = self._convert_with_pandoc(docx_file, output_path)
+                else:
+                    logger.error("Нет инструмента для конвертации .docx в markdown")
+                    return False
+
+                if success:
+                    logger.debug(f"Успешно сконвертирован .doc файл: {input_path.name}")
+                    return True
+                else:
+                    return False
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout при конвертации .doc файла {input_path.name}")
+            return False
+        except Exception as e:
+            logger.error(f"Ошибка LibreOffice конвертации {input_path.name}: {e}")
             return False
 
     def _create_metadata(self, input_path: Path) -> str:

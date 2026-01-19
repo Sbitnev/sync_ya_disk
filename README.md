@@ -30,10 +30,16 @@
    - Linux: `sudo apt-get install ffmpeg`
    - macOS: `brew install ffmpeg`
 
-3. **Pandoc** - для конвертации старых .doc файлов
+3. **Pandoc** - для конвертации .docx файлов в Markdown
    - Windows: https://github.com/jgm/pandoc/releases/latest или `winget install JohnMacFarlane.Pandoc`
    - Linux: `sudo apt-get install pandoc`
    - macOS: `brew install pandoc`
+
+4. **LibreOffice** (опционально) - для конвертации старых .doc файлов
+   - Windows: https://www.libreoffice.org/download/ или `winget install TheDocumentFoundation.LibreOffice`
+   - Linux: `sudo apt-get install libreoffice-writer`
+   - macOS: `brew install --cask libreoffice`
+   - **Примечание:** Без LibreOffice старые .doc файлы будут пропускаться
 
 ### Python библиотеки
 
