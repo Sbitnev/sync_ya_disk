@@ -20,6 +20,7 @@ class WordConverter(FileConverter):
         super().__init__(['.docx', '.doc'])
         self.has_mammoth = self._check_mammoth()
         self.has_pandoc = self._check_pandoc()
+        self._soffice_cmd = None  # Будет установлено в _check_libreoffice
         self.has_libreoffice = self._check_libreoffice()
 
         if not self.has_mammoth and not self.has_pandoc and not self.has_libreoffice:
@@ -47,17 +48,38 @@ class WordConverter(FileConverter):
 
     def _check_libreoffice(self) -> bool:
         """Проверяет наличие LibreOffice в системе"""
-        # Пробуем разные команды для разных ОС
-        commands = ['soffice', 'libreoffice', 'loffice']
+        import platform
+        import os
 
+        # Пробуем разные команды для разных ОС
+        commands = []
+
+        # Для Windows проверяем стандартные пути установки
+        if platform.system() == 'Windows':
+            # Стандартные пути установки LibreOffice в Windows
+            windows_paths = [
+                r'C:\Program Files\LibreOffice\program\soffice.exe',
+                r'C:\Program Files (x86)\LibreOffice\program\soffice.exe',
+            ]
+            # Проверяем существование файла (быстрее чем запуск)
+            for path in windows_paths:
+                if os.path.exists(path):
+                    self._soffice_cmd = path
+                    logger.debug(f"LibreOffice найден: {path}")
+                    return True
+
+        # Для Linux/Mac пробуем команды из PATH
+        commands = ['soffice', 'libreoffice', 'loffice']
         for cmd in commands:
             try:
                 result = subprocess.run(
                     [cmd, '--version'],
                     capture_output=True,
-                    timeout=5
+                    timeout=10  # Увеличен таймаут
                 )
                 if result.returncode == 0:
+                    self._soffice_cmd = cmd
+                    logger.debug(f"LibreOffice найден: {cmd}")
                     return True
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 continue
@@ -205,21 +227,8 @@ class WordConverter(FileConverter):
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_dir_path = Path(temp_dir)
 
-                # Определяем команду LibreOffice
-                soffice_cmd = None
-                for cmd in ['soffice', 'libreoffice', 'loffice']:
-                    try:
-                        result = subprocess.run(
-                            [cmd, '--version'],
-                            capture_output=True,
-                            timeout=5
-                        )
-                        if result.returncode == 0:
-                            soffice_cmd = cmd
-                            break
-                    except (FileNotFoundError, subprocess.TimeoutExpired):
-                        continue
-
+                # Используем сохраненную команду LibreOffice
+                soffice_cmd = self._soffice_cmd
                 if not soffice_cmd:
                     logger.error("LibreOffice не найден")
                     return False
