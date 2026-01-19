@@ -236,28 +236,57 @@ class WordConverter(FileConverter):
                 # Шаг 1: Конвертируем .doc в .docx через LibreOffice
                 logger.debug(f"Конвертация .doc → .docx через LibreOffice: {input_path.name}")
 
+                # Используем абсолютные пути для надежности
+                abs_input_path = input_path.resolve()
+                abs_temp_dir = temp_dir_path.resolve()
+
+                # Создаем временный user profile для LibreOffice (решает проблемы с блокировками)
+                user_profile_dir = temp_dir_path / 'libreoffice_profile'
+                user_profile_dir.mkdir(exist_ok=True)
+
                 result = subprocess.run(
                     [
                         soffice_cmd,
                         '--headless',
+                        '--invisible',
+                        '--nocrashreport',
+                        '--nodefault',
+                        '--nofirststartwizard',
+                        '--nolockcheck',
+                        '--nologo',
+                        '--norestore',
+                        f'-env:UserInstallation=file:///{str(user_profile_dir).replace(chr(92), "/")}',
                         '--convert-to', 'docx',
-                        '--outdir', str(temp_dir_path),
-                        str(input_path)
+                        '--outdir', str(abs_temp_dir),
+                        str(abs_input_path)
                     ],
                     capture_output=True,
-                    timeout=60,
+                    timeout=120,  # Увеличен таймаут
                     text=True
                 )
 
                 if result.returncode != 0:
-                    logger.error(f"LibreOffice ошибка при конвертации {input_path.name}: {result.stderr}")
+                    error_msg = f"LibreOffice ошибка при конвертации {input_path.name}"
+                    error_msg += f"\n  Return code: {result.returncode}"
+                    if result.stderr:
+                        error_msg += f"\n  Stderr: {result.stderr}"
+                    if result.stdout:
+                        error_msg += f"\n  Stdout: {result.stdout}"
+                    logger.error(error_msg)
                     return False
+
+                # Дополнительно логируем stdout для диагностики
+                if result.stdout:
+                    logger.debug(f"LibreOffice stdout: {result.stdout}")
 
                 # Находим созданный .docx файл
                 docx_file = temp_dir_path / f"{input_path.stem}.docx"
 
                 if not docx_file.exists():
+                    # Выводим список файлов в temp директории для диагностики
+                    temp_files = list(temp_dir_path.glob('*'))
                     logger.error(f"LibreOffice не создал .docx файл: {docx_file}")
+                    logger.error(f"Файлы в temp директории: {[f.name for f in temp_files]}")
                     return False
 
                 # Шаг 2: Конвертируем .docx в markdown используя существующий метод
