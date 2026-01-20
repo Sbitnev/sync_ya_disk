@@ -363,6 +363,67 @@ SKIP_LARGE_FILES = False
 ENABLE_TOTAL_SIZE_LIMIT = False
 ```
 
+## Мониторинг и логи
+
+Проект использует **трехуровневую систему логирования** для удобного мониторинга и отладки:
+
+### Файлы логов
+
+| Файл | Содержимое | Хранение | Назначение |
+|------|-----------|----------|------------|
+| `logs/sync_ya_disk.log` | Все события (DEBUG+) | 7 дней | Полная история синхронизации |
+| `logs/errors.log` | Только ошибки (ERROR+) | 30 дней | Быстрый анализ проблем |
+| `logs/warnings.log` | Предупреждения и ошибки | 14 дней | Анализ потенциальных проблем |
+
+### Быстрая проверка ошибок
+
+```bash
+# Быстрый анализ ошибок
+python check_errors.py
+
+# Или просто посмотреть файл с ошибками
+cat logs/errors.log
+# Windows:
+type logs\errors.log
+```
+
+### Примеры использования
+
+**Найти критические ошибки:**
+```bash
+# Linux/Mac
+grep "ERROR" logs/errors.log
+
+# Windows
+findstr "ERROR" logs\errors.log
+```
+
+**Проверить сетевые проблемы:**
+```bash
+# Linux/Mac
+grep -i "timeout\|connection" logs/warnings.log
+
+# Windows
+findstr /i "timeout connection" logs\warnings.log
+```
+
+**Посмотреть последние 50 ошибок:**
+```bash
+# Linux/Mac
+tail -50 logs/errors.log
+
+# Windows
+powershell -Command "Get-Content logs\errors.log -Tail 50"
+```
+
+### Автоматическая ротация
+
+- Логи автоматически ротируются при достижении лимита размера
+- Старые логи сжимаются в `.zip` архивы
+- После истечения срока хранения файлы удаляются автоматически
+
+Подробная документация: [docs/LOGGING.md](docs/LOGGING.md)
+
 ## Как это работает
 
 ### 1. Token Exchange

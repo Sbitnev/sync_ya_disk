@@ -34,14 +34,36 @@ def setup_logging():
         colorize=True
     )
 
-    # Логирование в файл
+    # Создаем директорию для логов
     config.LOGS_DIR.mkdir(exist_ok=True)
+
+    # Логирование всех событий в основной файл
     logger.add(
         config.LOGS_DIR / "sync_ya_disk.log",
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
         level="DEBUG",
         rotation="10 MB",
         retention="7 days",
+        compression="zip"
+    )
+
+    # Отдельный файл только для ошибок (ERROR и выше)
+    logger.add(
+        config.LOGS_DIR / "errors.log",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+        level="ERROR",
+        rotation="5 MB",
+        retention="30 days",
+        compression="zip"
+    )
+
+    # Отдельный файл для предупреждений и выше (WARNING, ERROR, CRITICAL)
+    logger.add(
+        config.LOGS_DIR / "warnings.log",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+        level="WARNING",
+        rotation="5 MB",
+        retention="14 days",
         compression="zip"
     )
 
