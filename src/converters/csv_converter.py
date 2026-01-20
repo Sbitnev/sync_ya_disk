@@ -3,6 +3,7 @@
 """
 from pathlib import Path
 import pandas as pd
+import chardet
 from loguru import logger
 
 from .base import FileConverter
@@ -24,6 +25,32 @@ class CSVConverter(FileConverter):
         self.max_rows = max_rows
         self.max_columns = max_columns
 
+    def _detect_encoding(self, input_path: Path) -> str:
+        """
+        Определяет кодировку файла с помощью chardet
+
+        :param input_path: Путь к файлу
+        :return: Определенная кодировка или 'utf-8' по умолчанию
+        """
+        try:
+            # Читаем первые 100 КБ файла для определения кодировки
+            with open(input_path, 'rb') as f:
+                raw_data = f.read(100000)
+
+            result = chardet.detect(raw_data)
+            encoding = result['encoding']
+            confidence = result['confidence']
+
+            if encoding and confidence > 0.7:
+                logger.debug(f"Определена кодировка {encoding} (уверенность: {confidence:.2f})")
+                return encoding
+            else:
+                logger.debug(f"Низкая уверенность ({confidence:.2f}), используем utf-8")
+                return 'utf-8'
+        except Exception as e:
+            logger.debug(f"Ошибка определения кодировки: {e}, используем utf-8")
+            return 'utf-8'
+
     def convert(self, input_path: Path, output_path: Path) -> bool:
         """
         Конвертирует CSV в Markdown таблицу
@@ -33,8 +60,14 @@ class CSVConverter(FileConverter):
         :return: True если успешно
         """
         try:
-            # Пробуем разные кодировки
-            encodings = ['utf-8', 'cp1251', 'latin-1', 'utf-16']
+            # Определяем кодировку с помощью chardet
+            detected_encoding = self._detect_encoding(input_path)
+
+            # Пробуем разные кодировки, начиная с определенной
+            encodings = [detected_encoding, 'utf-8', 'cp1251', 'latin-1', 'utf-16']
+            # Удаляем дубликаты, сохраняя порядок
+            encodings = list(dict.fromkeys(encodings))
+
             df = None
 
             for encoding in encodings:

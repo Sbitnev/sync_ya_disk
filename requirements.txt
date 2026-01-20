@@ -3,6 +3,7 @@ python-dotenv
 tqdm
 loguru
 pandas
+chardet
 mammoth
 tabulate
 openpyxl

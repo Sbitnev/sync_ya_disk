@@ -82,6 +82,16 @@ IMAGE_EXTENSIONS = [
     ".ico",
 ]
 
+# Пропускать Parquet файлы (не загружать и не обрабатывать)
+# Parquet - колоночный формат для BigData, увеличивается в 17-18 раз при конвертации в CSV
+# Рекомендуется работать с ними напрямую через pandas/DuckDB
+SKIP_PARQUET_FILES = True
+
+# Расширения Parquet файлов
+PARQUET_EXTENSIONS = [
+    ".parquet",
+]
+
 # Максимальный размер файла для скачивания (в байтах)
 # Файлы больше этого размера будут пропущены (создан пустой файл)
 MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 ГБ
@@ -100,6 +110,24 @@ ENABLE_TOTAL_SIZE_LIMIT = True
 # Режим ручного выбора папок для синхронизации
 # Если включен, перед синхронизацией будет показан список папок с анализом
 MANUAL_MODE = False
+
+# Минимальное свободное место на диске (ГБ)
+# Если места меньше, синхронизация будет остановлена
+MIN_FREE_SPACE_GB = int(os.getenv("MIN_FREE_SPACE_GB", "5"))
+
+# Паттерны файлов для пропуска (временные и служебные файлы)
+SKIP_FILE_PATTERNS = [
+    r'^~\$',            # Временные Office файлы (~$filename.docx)
+    r'^~WRL.*\.tmp$',   # Временные Word файлы (~WRL1234.tmp)
+    r'\.tmp$',          # Все .tmp файлы
+    r'\.temp$',         # Временные файлы
+    r'\.drawio$',       # Диаграммы Draw.io
+    r'\.drawio\.bkp$',  # Резервные копии Draw.io
+    r'\.drawio\.dtmp$', # Временные Draw.io
+    r'\.mpp$',          # Microsoft Project (пока не поддерживается)
+    r'^\.~',            # Скрытые временные файлы (.~lock)
+    r'^\._',            # macOS временные файлы (._filename)
+]
 
 # Количество потоков для параллельной загрузки файлов
 MAX_WORKERS = 5
@@ -183,7 +211,9 @@ CONVERT_POWERPOINT_FILES = True
 CONVERT_HTML_FILES = True
 
 # Конвертировать Parquet файлы (.parquet) в CSV
-CONVERT_PARQUET_FILES = True
+# ОТКЛЮЧЕНО: Parquet файлы увеличиваются в 17-18 раз при конвертации в CSV
+# Рекомендуется работать с ними напрямую через pandas/DuckDB
+CONVERT_PARQUET_FILES = False
 PARQUET_TO_CSV = True  # Сохранять как CSV вместо Markdown
 
 # Максимальное количество строк в Parquet для отображения в markdown (None = без ограничений)
@@ -265,6 +295,7 @@ def print_config_summary():
     print("Ограничения:")
     print(f"  • Видео файлы: {'пропускать' if SKIP_VIDEO_FILES else 'скачивать'}")
     print(f"  • Файлы изображений: {'пропускать' if SKIP_IMAGE_FILES else 'скачивать'}")
+    print(f"  • Parquet файлы: {'пропускать' if SKIP_PARQUET_FILES else 'скачивать'}")
     print(
         f"  • Большие файлы (>{format_size(MAX_FILE_SIZE)}): {'пропускать' if SKIP_LARGE_FILES else 'скачивать'}"
     )

@@ -4,6 +4,8 @@
 import time
 import json
 import requests
+import re
+import shutil
 from pathlib import Path
 from datetime import datetime
 from tqdm import tqdm
@@ -715,6 +717,14 @@ class YandexDiskUserSyncer:
         file_ext = Path(filename).suffix.lower()
         return file_ext in config.IMAGE_EXTENSIONS
 
+    def is_parquet_file(self, filename):
+        """Проверяет, является ли файл Parquet"""
+        if not config.SKIP_PARQUET_FILES:
+            return False
+
+        file_ext = Path(filename).suffix.lower()
+        return file_ext in config.PARQUET_EXTENSIONS
+
     def is_large_file(self, size):
         """Проверяет, является ли файл слишком большим"""
         if not config.SKIP_LARGE_FILES:
@@ -729,6 +739,10 @@ class YandexDiskUserSyncer:
         :param file_info: Информация о файле
         :return: (should_skip, reason)
         """
+        # Проверяем временные файлы
+        if self.should_skip_temporary_file(file_info['name']):
+            return True, "temporary"
+
         # Проверяем общий лимит загрузки
         if config.ENABLE_TOTAL_SIZE_LIMIT:
             with self.download_lock:
@@ -747,11 +761,38 @@ class YandexDiskUserSyncer:
         if self.is_image_file(file_info['name']):
             return True, "image"
 
+        # Проверяем Parquet файлы
+        if self.is_parquet_file(file_info['name']):
+            return True, "parquet"
+
         # Проверяем размер файла
         if self.is_large_file(file_info['size']):
             return True, "large"
 
         return False, None
+
+    def should_skip_temporary_file(self, filename):
+        """
+        Проверяет, является ли файл временным на основе паттернов
+
+        :param filename: Имя файла
+        :return: True если файл временный и его нужно пропустить
+        """
+        for pattern in config.SKIP_FILE_PATTERNS:
+            if re.search(pattern, filename):
+                return True
+        return False
+
+    def check_disk_space(self):
+        """
+        Проверяет свободное место на диске
+
+        :return: (is_enough, free_gb) - достаточно ли места и сколько ГБ свободно
+        """
+        usage = shutil.disk_usage(self.download_dir.parent)
+        free_gb = usage.free / (1024 ** 3)  # Конвертируем в ГБ
+        is_enough = free_gb >= config.MIN_FREE_SPACE_GB
+        return is_enough, free_gb
 
     def download_file(self, file_info):
         """
@@ -770,8 +811,10 @@ class YandexDiskUserSyncer:
 
         if should_skip:
             reason_text = {
+                'temporary': 'временный файл',
                 'video': 'видео',
                 'image': 'изображение',
+                'parquet': 'Parquet файл',
                 'large': f'большой файл (>{format_size(config.MAX_FILE_SIZE)})',
                 'total_limit': f'достигнут лимит {format_size(config.MAX_TOTAL_SIZE)}'
             }.get(reason, 'неизвестная причина')
@@ -1144,6 +1187,15 @@ class YandexDiskUserSyncer:
         # Выводим информацию о конфигурации
         config.print_config_summary()
 
+        # Проверяем свободное место на диске
+        is_enough, free_gb = self.check_disk_space()
+        logger.info(f"Свободное место на диске: {free_gb:.2f} ГБ")
+        if not is_enough:
+            logger.error(f"Недостаточно свободного места на диске!")
+            logger.error(f"Требуется минимум {config.MIN_FREE_SPACE_GB} ГБ, доступно {free_gb:.2f} ГБ")
+            logger.error("Синхронизация остановлена")
+            return
+
         # Проверяем незавершенные транскрибации из предыдущих запусков
         self.check_pending_transcriptions()
 
@@ -1264,8 +1316,10 @@ class YandexDiskUserSyncer:
         downloaded_count = 0
         updated_count = 0
         skipped_count = len(all_files) - len(files_to_download)
+        temporary_count = 0
         video_count = 0
         image_count = 0
+        parquet_count = 0
         large_file_count = 0
         limit_reached_count = 0
         converted_count = 0
@@ -1274,7 +1328,7 @@ class YandexDiskUserSyncer:
         failed_files = []
 
         def process_file(file_info):
-            nonlocal downloaded_count, updated_count, video_count, image_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count, error_count
+            nonlocal downloaded_count, updated_count, temporary_count, video_count, image_count, parquet_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count, error_count
 
             existing_metadata = self.db.get_file_metadata(file_info['path'])
             is_new = existing_metadata is None
@@ -1286,10 +1340,14 @@ class YandexDiskUserSyncer:
             if download_result == 'skipped':
                 # Файл пропущен - НЕ сохраняем в БД для возможности повторной загрузки
                 with self.metadata_lock:
-                    if reason == 'video':
+                    if reason == 'temporary':
+                        temporary_count += 1
+                    elif reason == 'video':
                         video_count += 1
                     elif reason == 'image':
                         image_count += 1
+                    elif reason == 'parquet':
+                        parquet_count += 1
                     elif reason == 'large':
                         large_file_count += 1
                     elif reason == 'total_limit':
@@ -1418,8 +1476,10 @@ class YandexDiskUserSyncer:
         logger.info("=" * 70)
         logger.info(f"Новых файлов скачано: {downloaded_count}")
         logger.info(f"Обновленных файлов: {updated_count}")
+        logger.info(f"Временные файлы (пропущено): {temporary_count}")
         logger.info(f"Видео (пропущено): {video_count}")
         logger.info(f"Изображения (пропущено): {image_count}")
+        logger.info(f"Parquet файлы (пропущено): {parquet_count}")
         logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (пропущено): {large_file_count}")
         logger.info(f"Достигнут лимит {format_size(config.MAX_TOTAL_SIZE)} (пропущено): {limit_reached_count}")
         logger.info(f"Пропущено (без изменений): {skipped_count}")
