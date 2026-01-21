@@ -52,6 +52,9 @@ class YandexDiskUserSyncer:
         self.total_downloaded_bytes = 0
         self.download_lock = Lock()
 
+        # Последняя ошибка запроса (для информативного логирования)
+        self.last_error_message = None
+
         # Создаем директорию для загрузки
         self.download_dir.mkdir(exist_ok=True)
 
@@ -475,6 +478,7 @@ class YandexDiskUserSyncer:
             try:
                 response = getattr(self.session, method)(url, timeout=timeout, **kwargs)
                 response.raise_for_status()
+                self.last_error_message = None  # Успешный запрос - сбрасываем ошибку
                 return response
             except requests.exceptions.ConnectionError as e:
                 if attempt < max_retries - 1:
@@ -482,6 +486,8 @@ class YandexDiskUserSyncer:
                     time.sleep(config.RETRY_DELAY * (attempt + 1))
                     continue
                 else:
+                    error_msg = f"Ошибка соединения после {max_retries} попыток"
+                    self.last_error_message = error_msg
                     logger.error(f"Не удалось установить соединение{context} после {max_retries} попыток")
                     return None
             except requests.exceptions.Timeout as e:
@@ -490,6 +496,8 @@ class YandexDiskUserSyncer:
                     time.sleep(config.RETRY_DELAY * (attempt + 1))
                     continue
                 else:
+                    error_msg = f"Таймаут после {max_retries} попыток"
+                    self.last_error_message = error_msg
                     logger.error(f"Превышено время ожидания{context} после {max_retries} попыток")
                     return None
             except requests.exceptions.HTTPError as e:
@@ -500,6 +508,19 @@ class YandexDiskUserSyncer:
                     error_msg = error_body.get('message', str(e))
                 except:
                     error_msg = str(e)
+
+                # Сохраняем короткое описание ошибки
+                if status_code == 403:
+                    self.last_error_message = "Нет доступа (403 Forbidden)"
+                elif status_code == 404:
+                    self.last_error_message = "Не найдена (404 Not Found)"
+                elif status_code == 429:
+                    self.last_error_message = "Слишком много запросов (429 Too Many Requests)"
+                elif status_code == 500:
+                    self.last_error_message = "Ошибка сервера (500 Internal Server Error)"
+                else:
+                    self.last_error_message = f"HTTP ошибка {status_code}"
+
                 logger.error(f"HTTP ошибка {status_code}{context}: {error_msg}")
                 return None
             except requests.exceptions.RequestException as e:
@@ -508,6 +529,7 @@ class YandexDiskUserSyncer:
                     time.sleep(config.RETRY_DELAY * (attempt + 1))
                     continue
                 else:
+                    self.last_error_message = f"Ошибка запроса: {str(e)[:100]}"
                     logger.error(f"Ошибка запроса{context} после {max_retries} попыток: {e}")
                     return None
         return None
@@ -615,8 +637,9 @@ class YandexDiskUserSyncer:
         data = self.get_user_resources(path)
 
         if not data:
-            # Ошибка уже залогирована в get_user_resources с деталями
-            logger.warning(f"Папка пропущена: {path}")
+            # Показываем причину пропуска из последней ошибки
+            reason = self.last_error_message or "Неизвестная ошибка"
+            logger.warning(f"Папка пропущена: {path} ({reason})")
             return files_list
 
         if '_embedded' in data and 'items' in data['_embedded']:

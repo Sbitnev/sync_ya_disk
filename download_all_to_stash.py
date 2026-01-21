@@ -51,6 +51,9 @@ class StashDownloader:
         # Прогресс-бар для общего размера (будет создан в download_all)
         self.size_pbar = None
 
+        # Последняя ошибка запроса (для информативного логирования)
+        self.last_error_message = None
+
         # HTTP сессия с увеличенным connection pool для параллельных запросов
         self.session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
@@ -102,6 +105,7 @@ class StashDownloader:
             try:
                 response = getattr(self.session, method)(url, timeout=30, **kwargs)
                 response.raise_for_status()
+                self.last_error_message = None  # Успешный запрос - сбрасываем ошибку
                 return response
             except requests.exceptions.HTTPError as e:
                 status_code = e.response.status_code if e.response is not None else 'неизвестно'
@@ -110,14 +114,46 @@ class StashDownloader:
                     error_msg = error_body.get('message', str(e))
                 except:
                     error_msg = str(e)
+
+                # Сохраняем короткое описание ошибки
+                if status_code == 403:
+                    self.last_error_message = "Нет доступа (403 Forbidden)"
+                elif status_code == 404:
+                    self.last_error_message = "Не найдена (404 Not Found)"
+                elif status_code == 429:
+                    self.last_error_message = "Слишком много запросов (429 Too Many Requests)"
+                elif status_code == 500:
+                    self.last_error_message = "Ошибка сервера (500 Internal Server Error)"
+                else:
+                    self.last_error_message = f"HTTP ошибка {status_code}"
+
                 logger.error(f"HTTP ошибка {status_code}{context}: {error_msg}")
                 return None
+            except requests.exceptions.Timeout as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Таймаут{context} (попытка {attempt + 1}/{max_retries})")
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                else:
+                    self.last_error_message = f"Таймаут после {max_retries} попыток"
+                    logger.error(f"Таймаут{context} после {max_retries} попыток")
+                    return None
+            except requests.exceptions.ConnectionError as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Ошибка соединения{context} (попытка {attempt + 1}/{max_retries})")
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                else:
+                    self.last_error_message = f"Ошибка соединения после {max_retries} попыток"
+                    logger.error(f"Ошибка соединения{context} после {max_retries} попыток")
+                    return None
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries - 1:
                     logger.warning(f"Ошибка запроса{context} (попытка {attempt + 1}/{max_retries})")
                     time.sleep(2 * (attempt + 1))
                     continue
                 else:
+                    self.last_error_message = f"Ошибка запроса: {str(e)[:100]}"
                     logger.error(f"Ошибка{context} после {max_retries} попыток: {e}")
                     return None
         return None
@@ -196,7 +232,9 @@ class StashDownloader:
         data = self.get_user_resources(path)
 
         if not data:
-            logger.warning(f"Папка пропущена: {path}")
+            # Показываем причину пропуска из последней ошибки
+            reason = self.last_error_message or "Неизвестная ошибка"
+            logger.warning(f"Папка пропущена: {path} ({reason})")
             return files_list
 
         if '_embedded' in data and 'items' in data['_embedded']:
