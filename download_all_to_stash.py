@@ -333,12 +333,24 @@ class StashDownloader:
         total_size = sum(f['size'] for f in all_files)
         logger.info(f"Общий размер: {format_size(total_size)}")
 
-        # Фильтруем уже скачанные файлы
+        # Фильтруем уже скачанные файлы и определяем новые
         files_to_download = []
         already_downloaded = 0
         already_downloaded_size = 0
         partial_files_count = 0
         partial_files_size = 0
+        new_files_count = 0
+        new_files_size = 0
+
+        # Определяем файлы, которые были в предыдущем прогрессе
+        all_file_paths = {f['path'] for f in all_files}
+
+        # Находим новые файлы (которых не было в прогрессе)
+        if self.completed_files:
+            new_file_paths = all_file_paths - self.completed_files
+            if new_file_paths:
+                new_files_count = len(new_file_paths)
+                new_files_size = sum(f['size'] for f in all_files if f['path'] in new_file_paths)
 
         for file_info in all_files:
             safe_path = sanitize_path(file_info['path'])
@@ -346,11 +358,27 @@ class StashDownloader:
 
             # Проверяем по прогрессу
             if file_info['path'] in self.completed_files:
-                already_downloaded += 1
-                already_downloaded_size += file_info['size']
-                continue
+                # Дополнительно проверяем существует ли файл локально
+                if local_path.exists():
+                    existing_size = local_path.stat().st_size
+                    if existing_size == file_info['size']:
+                        already_downloaded += 1
+                        already_downloaded_size += file_info['size']
+                        continue
+                    else:
+                        # Файл был в прогрессе, но локально поврежден - перезагрузим
+                        logger.warning(f"Файл в прогрессе, но локально поврежден: {file_info['path']}")
+                        partial_files_count += 1
+                        partial_files_size += existing_size
+                        files_to_download.append(file_info)
+                        continue
+                else:
+                    # Файл был в прогрессе, но удален локально - перезагрузим
+                    logger.warning(f"Файл в прогрессе, но удален локально: {file_info['path']}")
+                    files_to_download.append(file_info)
+                    continue
 
-            # Проверяем локальный файл
+            # Проверяем локальный файл (для файлов не в прогрессе)
             if local_path.exists():
                 existing_size = local_path.stat().st_size
                 if existing_size == file_info['size']:
@@ -366,16 +394,27 @@ class StashDownloader:
 
             files_to_download.append(file_info)
 
-        # Информация о возобновлении
-        if already_downloaded > 0:
+        # Информация о возобновлении и новых файлах
+        if already_downloaded > 0 or new_files_count > 0:
             logger.info("=" * 70)
-            logger.info("ВОЗОБНОВЛЕНИЕ ЗАГРУЗКИ")
+            if new_files_count > 0:
+                logger.info("ОБНАРУЖЕНЫ НОВЫЕ ФАЙЛЫ НА ДИСКЕ")
+            else:
+                logger.info("ВОЗОБНОВЛЕНИЕ ЗАГРУЗКИ")
             logger.info("=" * 70)
-            logger.info(f"Уже скачано файлов: {already_downloaded}")
-            logger.info(f"Размер скачанных файлов: {format_size(already_downloaded_size)}")
+
+            if already_downloaded > 0:
+                logger.info(f"Уже скачано файлов: {already_downloaded}")
+                logger.info(f"Размер скачанных файлов: {format_size(already_downloaded_size)}")
+
+            if new_files_count > 0:
+                logger.success(f"Новых файлов на диске: {new_files_count}")
+                logger.success(f"Размер новых файлов: {format_size(new_files_size)}")
+
             if partial_files_count > 0:
-                logger.warning(f"Частично загруженных файлов: {partial_files_count} ({format_size(partial_files_size)})")
-                logger.warning("Частично загруженные файлы будут удалены и загружены заново")
+                logger.warning(f"Поврежденных/частичных файлов: {partial_files_count} ({format_size(partial_files_size)})")
+                logger.warning("Эти файлы будут удалены и загружены заново")
+
             logger.info("=" * 70)
 
         logger.info(f"Файлов к скачиванию: {len(files_to_download)}")
@@ -384,10 +423,7 @@ class StashDownloader:
 
         if not files_to_download:
             logger.success("Все файлы уже скачаны!")
-            # Удаляем файл прогресса
-            if self.progress_file.exists():
-                self.progress_file.unlink()
-                logger.info("Файл прогресса удален")
+            logger.info("При следующем запуске будут загружены только новые файлы с диска")
             return
 
         # Скачиваем файлы
@@ -427,12 +463,25 @@ class StashDownloader:
         logger.info("=" * 70)
         logger.success("ВЫГРУЗКА ЗАВЕРШЕНА!")
         logger.info("=" * 70)
-        logger.info(f"Успешно скачано: {success_count}")
-        logger.info(f"Ошибок: {failed_count}")
-        logger.info(f"Уже было скачано: {already_downloaded}")
-        logger.info(f"Всего файлов: {len(all_files)}")
-        logger.info(f"Скачано данных в этом сеансе: {format_size(self.total_downloaded_bytes)}")
-        logger.info(f"Всего данных: {format_size(already_downloaded_size + self.total_downloaded_bytes)}")
+
+        # Статистика текущего сеанса
+        logger.info("Текущий сеанс:")
+        logger.info(f"  Успешно скачано: {success_count}")
+        if new_files_count > 0 and success_count <= new_files_count:
+            logger.info(f"  Новых файлов загружено: {success_count}/{new_files_count}")
+        logger.info(f"  Ошибок: {failed_count}")
+        logger.info(f"  Скачано данных: {format_size(self.total_downloaded_bytes)}")
+
+        # Общая статистика
+        logger.info("")
+        logger.info("Общая статистика:")
+        logger.info(f"  Всего файлов на диске: {len(all_files)}")
+        logger.info(f"  Загружено локально: {already_downloaded + success_count}")
+        logger.info(f"  Всего данных: {format_size(already_downloaded_size + self.total_downloaded_bytes)}")
+
+        if new_files_count > 0:
+            logger.info(f"  Новых файлов обнаружено: {new_files_count}")
+
         logger.info("=" * 70)
 
         if failed_files:
@@ -442,10 +491,9 @@ class StashDownloader:
             logger.warning(f"Список неудачных файлов: {failed_log.absolute()}")
             logger.warning("При следующем запуске неудачные файлы будут загружены повторно")
         else:
-            # Если все файлы загружены успешно, удаляем файл прогресса
-            if self.progress_file.exists():
-                self.progress_file.unlink()
-                logger.info("Файл прогресса удален (все файлы загружены)")
+            logger.success("Все файлы успешно загружены!")
+            logger.info("Файл прогресса сохранен для инкрементальных обновлений")
+            logger.info("При следующем запуске будут загружены только новые файлы")
 
 
 def setup_logging():
