@@ -78,7 +78,7 @@ class StashProcessor:
                 self.converters.append(ParquetConverter())
             if config.CONVERT_RTF_FILES:
                 self.converters.append(RTFConverter())
-            if config.CONVERT_ARCHIVES:
+            if config.CONVERT_ARCHIVE_FILES:
                 self.converters.append(ArchiveConverter())
 
         # Статистика
