@@ -51,11 +51,11 @@ class StashDownloader:
         # Прогресс-бар для общего размера (будет создан в download_all)
         self.size_pbar = None
 
-        # HTTP сессия
+        # HTTP сессия с увеличенным connection pool для параллельных запросов
         self.session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=10,
-            pool_maxsize=20,
+            pool_connections=config.HTTP_POOL_CONNECTIONS,
+            pool_maxsize=config.HTTP_POOL_MAXSIZE,
             max_retries=0
         )
         self.session.mount('https://', adapter)
@@ -170,16 +170,27 @@ class StashDownloader:
 
         return None
 
-    def get_all_files_recursive(self, path="/", relative_path=""):
+    def get_all_files_recursive(self, path="/", relative_path="", _processed_count=None):
         """
-        Рекурсивно получает все файлы с диска
+        Рекурсивно получает все файлы с диска с параллельной обработкой вложенных папок
 
         :param path: Путь на диске
         :param relative_path: Относительный путь для локального сохранения
+        :param _processed_count: Счетчик обработанных папок (для логирования)
         :return: Список всех файлов
         """
+        if _processed_count is None:
+            _processed_count = {'count': 0, 'lock': Lock()}
+
         files_list = []
         folders_to_process = []
+
+        # Логируем прогресс
+        if relative_path:
+            with _processed_count['lock']:
+                _processed_count['count'] += 1
+                if _processed_count['count'] % 10 == 0:
+                    logger.info(f"   Обработано папок: {_processed_count['count']}")
 
         logger.debug(f"Сканирование: {path}")
         data = self.get_user_resources(path)
@@ -210,10 +221,26 @@ class StashDownloader:
                     }
                     files_list.append(file_info)
 
-            # Обрабатываем вложенные папки
-            for folder_path, folder_rel_path in folders_to_process:
-                nested_files = self.get_all_files_recursive(folder_path, folder_rel_path)
-                files_list.extend(nested_files)
+            # Параллельная обработка вложенных папок для ускорения
+            if folders_to_process:
+                with ThreadPoolExecutor(max_workers=config.FOLDER_SCAN_WORKERS) as executor:
+                    futures = {
+                        executor.submit(
+                            self.get_all_files_recursive,
+                            folder_path,
+                            folder_rel_path,
+                            _processed_count
+                        ): folder_path
+                        for folder_path, folder_rel_path in folders_to_process
+                    }
+
+                    for future in as_completed(futures):
+                        try:
+                            nested_files = future.result()
+                            files_list.extend(nested_files)
+                        except Exception as e:
+                            folder_path = futures[future]
+                            logger.error(f"Ошибка при обработке папки {folder_path}: {e}")
 
         return files_list
 

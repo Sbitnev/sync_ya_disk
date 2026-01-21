@@ -133,7 +133,8 @@ SKIP_FILE_PATTERNS = [
 MAX_WORKERS = 5
 
 # Количество потоков для параллельного получения списка файлов из папок
-FOLDER_SCAN_WORKERS = 5
+# Увеличено для более быстрого сканирования структуры
+FOLDER_SCAN_WORKERS = 20
 
 # Максимальное количество попыток при ошибках сети
 MAX_RETRIES = 3
@@ -143,6 +144,14 @@ RETRY_DELAY = 2
 
 # Таймаут для сетевых запросов (секунды)
 REQUEST_TIMEOUT = 30
+
+# Таймаут для операций сканирования папок (секунды)
+# Меньше чем REQUEST_TIMEOUT т.к. запрос списка файлов быстрый
+FOLDER_SCAN_TIMEOUT = 15
+
+# Размер connection pool для HTTP сессии
+HTTP_POOL_CONNECTIONS = 30
+HTTP_POOL_MAXSIZE = 50
 
 # === Кэширование ===
 # Включить кэширование списка файлов (ускоряет повторные запуски)
@@ -303,7 +312,9 @@ def print_config_summary():
         f"  • Общий лимит: {format_size(MAX_TOTAL_SIZE) if ENABLE_TOTAL_SIZE_LIMIT else 'нет'}"
     )
     print()
-    print(f"Параллельных потоков: {MAX_WORKERS}")
+    print(f"Параллельных потоков загрузки: {MAX_WORKERS}")
+    print(f"Параллельных потоков сканирования папок: {FOLDER_SCAN_WORKERS}")
+    print(f"HTTP connection pool: {HTTP_POOL_CONNECTIONS}/{HTTP_POOL_MAXSIZE}")
     print(f"Режим ручного выбора папок: {'да' if MANUAL_MODE else 'нет'}")
     print()
     print("Конвертация в Markdown:")

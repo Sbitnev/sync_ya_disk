@@ -58,9 +58,10 @@ class YandexDiskUserSyncer:
         # Единая HTTP-сессия для переиспользования соединений
         self.session = requests.Session()
         # Настройка connection pooling для оптимизации
+        # Увеличенный pool для поддержки большего количества параллельных запросов
         adapter = requests.adapters.HTTPAdapter(
-            pool_connections=10,
-            pool_maxsize=20,
+            pool_connections=config.HTTP_POOL_CONNECTIONS,
+            pool_maxsize=config.HTTP_POOL_MAXSIZE,
             max_retries=0  # Ретраи обрабатываем вручную в _request_with_retry
         )
         self.session.mount('https://', adapter)
@@ -465,13 +466,14 @@ class YandexDiskUserSyncer:
             logger.info(f"Ожидание {config.VIDEO_CHECK_INTERVAL} сек перед следующей проверкой...")
             time.sleep(config.VIDEO_CHECK_INTERVAL)
 
-    def _request_with_retry(self, method, url, max_retries=None, context="", **kwargs):
+    def _request_with_retry(self, method, url, max_retries=None, context="", timeout=None, **kwargs):
         """Выполняет HTTP запрос с повторными попытками при ошибках"""
         max_retries = max_retries or config.MAX_RETRIES
+        timeout = timeout or config.REQUEST_TIMEOUT
 
         for attempt in range(max_retries):
             try:
-                response = getattr(self.session, method)(url, timeout=config.REQUEST_TIMEOUT, **kwargs)
+                response = getattr(self.session, method)(url, timeout=timeout, **kwargs)
                 response.raise_for_status()
                 return response
             except requests.exceptions.ConnectionError as e:
@@ -510,16 +512,21 @@ class YandexDiskUserSyncer:
                     return None
         return None
 
-    def get_user_resources(self, path, limit=1000):
+    def get_user_resources(self, path, limit=1000, timeout=None):
         """
         Получает ВСЕ ресурсы личного диска пользователя с поддержкой пагинации
 
         :param path: Путь к папке на диске (например, "/Клиенты")
         :param limit: Количество элементов на страницу (max 1000)
+        :param timeout: Таймаут для запроса (по умолчанию FOLDER_SCAN_TIMEOUT)
         :return: Данные ресурса со всеми элементами, или None при ошибке
         """
         url = "https://cloud-api.yandex.net/v1/disk/resources"
         headers = {"Authorization": f"OAuth {self.token_manager.token}"}
+
+        # Используем специальный таймаут для сканирования папок
+        if timeout is None:
+            timeout = config.FOLDER_SCAN_TIMEOUT
 
         all_items = []
         offset = 0
@@ -534,7 +541,7 @@ class YandexDiskUserSyncer:
                 "offset": offset
             }
 
-            response = self._request_with_retry('get', url, headers=headers, params=params, context=f" для папки: {path}")
+            response = self._request_with_retry('get', url, headers=headers, params=params, context=f" для папки: {path}", timeout=timeout)
             if not response:
                 # Ошибка уже залогирована в _request_with_retry с указанием пути
                 request_failed = True
