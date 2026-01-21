@@ -96,20 +96,29 @@ class StashDownloader:
             if len(self.completed_files) % 10 == 0:
                 self._save_progress()
 
-    def _request_with_retry(self, method, url, max_retries=3, **kwargs):
+    def _request_with_retry(self, method, url, max_retries=3, context="", **kwargs):
         """Выполняет HTTP запрос с повторными попытками"""
         for attempt in range(max_retries):
             try:
                 response = getattr(self.session, method)(url, timeout=30, **kwargs)
                 response.raise_for_status()
                 return response
+            except requests.exceptions.HTTPError as e:
+                status_code = e.response.status_code if e.response is not None else 'неизвестно'
+                try:
+                    error_body = e.response.json() if e.response else {}
+                    error_msg = error_body.get('message', str(e))
+                except:
+                    error_msg = str(e)
+                logger.error(f"HTTP ошибка {status_code}{context}: {error_msg}")
+                return None
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Ошибка запроса (попытка {attempt + 1}/{max_retries})")
+                    logger.warning(f"Ошибка запроса{context} (попытка {attempt + 1}/{max_retries})")
                     time.sleep(2 * (attempt + 1))
                     continue
                 else:
-                    logger.error(f"Ошибка после {max_retries} попыток: {e}")
+                    logger.error(f"Ошибка{context} после {max_retries} попыток: {e}")
                     return None
         return None
 
@@ -134,7 +143,7 @@ class StashDownloader:
                 "offset": offset
             }
 
-            response = self._request_with_retry('get', url, headers=headers, params=params)
+            response = self._request_with_retry('get', url, headers=headers, params=params, context=f" для папки: {path}")
             if not response:
                 break
 

@@ -465,7 +465,7 @@ class YandexDiskUserSyncer:
             logger.info(f"Ожидание {config.VIDEO_CHECK_INTERVAL} сек перед следующей проверкой...")
             time.sleep(config.VIDEO_CHECK_INTERVAL)
 
-    def _request_with_retry(self, method, url, max_retries=None, **kwargs):
+    def _request_with_retry(self, method, url, max_retries=None, context="", **kwargs):
         """Выполняет HTTP запрос с повторными попытками при ошибках"""
         max_retries = max_retries or config.MAX_RETRIES
 
@@ -476,31 +476,37 @@ class YandexDiskUserSyncer:
                 return response
             except requests.exceptions.ConnectionError as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Ошибка соединения (попытка {attempt + 1}/{max_retries})")
+                    logger.warning(f"Ошибка соединения{context} (попытка {attempt + 1}/{max_retries})")
                     time.sleep(config.RETRY_DELAY * (attempt + 1))
                     continue
                 else:
-                    logger.error(f"Не удалось установить соединение после {max_retries} попыток")
+                    logger.error(f"Не удалось установить соединение{context} после {max_retries} попыток")
                     return None
             except requests.exceptions.Timeout as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Таймаут (попытка {attempt + 1}/{max_retries})")
+                    logger.warning(f"Таймаут{context} (попытка {attempt + 1}/{max_retries})")
                     time.sleep(config.RETRY_DELAY * (attempt + 1))
                     continue
                 else:
-                    logger.error(f"Превышено время ожидания после {max_retries} попыток")
+                    logger.error(f"Превышено время ожидания{context} после {max_retries} попыток")
                     return None
             except requests.exceptions.HTTPError as e:
                 status_code = e.response.status_code if e.response is not None else 'неизвестно'
-                logger.error(f"HTTP ошибка {status_code}: {e}")
+                # Получаем тело ответа для диагностики
+                try:
+                    error_body = e.response.json() if e.response else {}
+                    error_msg = error_body.get('message', str(e))
+                except:
+                    error_msg = str(e)
+                logger.error(f"HTTP ошибка {status_code}{context}: {error_msg}")
                 return None
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Ошибка запроса (попытка {attempt + 1}/{max_retries})")
+                    logger.warning(f"Ошибка запроса{context} (попытка {attempt + 1}/{max_retries})")
                     time.sleep(config.RETRY_DELAY * (attempt + 1))
                     continue
                 else:
-                    logger.error(f"Ошибка запроса после {max_retries} попыток: {e}")
+                    logger.error(f"Ошибка запроса{context} после {max_retries} попыток: {e}")
                     return None
         return None
 
@@ -510,7 +516,7 @@ class YandexDiskUserSyncer:
 
         :param path: Путь к папке на диске (например, "/Клиенты")
         :param limit: Количество элементов на страницу (max 1000)
-        :return: Данные ресурса со всеми элементами
+        :return: Данные ресурса со всеми элементами, или None при ошибке
         """
         url = "https://cloud-api.yandex.net/v1/disk/resources"
         headers = {"Authorization": f"OAuth {self.token_manager.token}"}
@@ -518,6 +524,7 @@ class YandexDiskUserSyncer:
         all_items = []
         offset = 0
         total_fetched = 0
+        request_failed = False
 
         # Пагинация для получения всех элементов
         while True:
@@ -527,9 +534,10 @@ class YandexDiskUserSyncer:
                 "offset": offset
             }
 
-            response = self._request_with_retry('get', url, headers=headers, params=params)
+            response = self._request_with_retry('get', url, headers=headers, params=params, context=f" для папки: {path}")
             if not response:
-                # Ошибка уже залогирована в _request_with_retry
+                # Ошибка уже залогирована в _request_with_retry с указанием пути
+                request_failed = True
                 break
 
             data = response.json()
@@ -559,7 +567,18 @@ class YandexDiskUserSyncer:
                 'path': path
             }
 
-        return None
+        # Если запрос упал - возвращаем None (ошибка уже залогирована)
+        if request_failed:
+            return None
+
+        # Если папка просто пустая - возвращаем пустую структуру
+        logger.debug(f"Папка пустая (нет файлов): {path}")
+        return {
+            '_embedded': {'items': []},
+            'type': 'dir',
+            'name': '',
+            'path': path
+        }
 
     def get_all_files_recursive(self, path, relative_path="", folders_set=None, _processed_folders=None):
         """
@@ -589,7 +608,8 @@ class YandexDiskUserSyncer:
         data = self.get_user_resources(path)
 
         if not data:
-            logger.warning(f"Папка пропущена (нет доступа или пустая): {path}")
+            # Ошибка уже залогирована в get_user_resources с деталями
+            logger.warning(f"Папка пропущена: {path}")
             return files_list
 
         if '_embedded' in data and 'items' in data['_embedded']:
