@@ -57,3 +57,8 @@ tmp_*/markdown_files/
 
 # Временные скрипты и тесты
 temp/
+
+# Папка stash для полной выгрузки диска
+stash/
+stash_download.log
+stash_failed.txt
