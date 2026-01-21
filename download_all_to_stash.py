@@ -48,6 +48,9 @@ class StashDownloader:
         # Множество успешно загруженных файлов
         self.completed_files = self._load_progress()
 
+        # Прогресс-бар для общего размера (будет создан в download_all)
+        self.size_pbar = None
+
         # HTTP сессия
         self.session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
@@ -272,17 +275,14 @@ class StashDownloader:
                 total_size = int(response.headers.get('content-length', 0))
 
                 with open(local_path, 'wb') as f:
-                    with tqdm(
-                        total=total_size,
-                        unit='B',
-                        unit_scale=True,
-                        unit_divisor=1024,
-                        desc=file_info['name'][:30],
-                        leave=False
-                    ) as pbar:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                            pbar.update(len(chunk))
+                    # Отключаем индивидуальный прогресс-бар, чтобы не засорять вывод
+                    # Общий прогресс-бар по размеру обновляется в реальном времени
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        # Обновляем общий прогресс-бар в реальном времени
+                        if self.size_pbar:
+                            with self.download_lock:
+                                self.size_pbar.update(len(chunk))
 
                 with self.download_lock:
                     self.total_downloaded_bytes += file_info['size']
@@ -290,7 +290,8 @@ class StashDownloader:
                 # Отмечаем файл как завершенный
                 self._mark_completed(file_info['path'])
 
-                logger.success(f"Скачан: {file_info['path']} ({format_size(file_info['size'])})")
+                # Используем debug вместо success, чтобы не засорять консоль с прогресс-барами
+                logger.debug(f"Скачан: {file_info['path']} ({format_size(file_info['size'])})")
                 return True
 
             except Exception as e:
@@ -434,13 +435,33 @@ class StashDownloader:
         failed_count = 0
         failed_files = []
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(self.download_file, file_info): file_info
-                for file_info in files_to_download
-            }
+        # Создаем прогресс-бары
+        with tqdm(
+            total=remaining_size,
+            desc="Размер загрузки",
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+            position=0,
+            colour='green'
+        ) as size_pbar, \
+        tqdm(
+            total=len(files_to_download),
+            desc="Файлы       ",
+            unit="файл",
+            position=1,
+            colour='blue'
+        ) as files_pbar:
 
-            with tqdm(total=len(files_to_download), desc="Общий прогресс", unit="файл") as pbar:
+            # Сохраняем ссылку на прогресс-бар размера
+            self.size_pbar = size_pbar
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(self.download_file, file_info): file_info
+                    for file_info in files_to_download
+                }
+
                 for future in as_completed(futures):
                     file_info = futures[future]
                     try:
@@ -454,7 +475,13 @@ class StashDownloader:
                         failed_count += 1
                         failed_files.append(file_info['path'])
 
-                    pbar.update(1)
+                    files_pbar.update(1)
+
+            # Очищаем ссылку на прогресс-бар
+            self.size_pbar = None
+
+        # Небольшая пауза, чтобы увидеть завершенные прогресс-бары
+        time.sleep(0.5)
 
         # Сохраняем финальный прогресс
         self._save_progress()
