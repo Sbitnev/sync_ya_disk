@@ -652,7 +652,8 @@ class YandexDiskUserSyncer:
                 item_name = item['name']
                 item_type = item['type']
                 item_path = f"{relative_path}/{item_name}" if relative_path else item_name
-                full_path = f"{path}/{item_name}" if path != "/" else f"/{item_name}"
+                # Убираем завершающий слэш из path чтобы избежать двойных слэшей
+                full_path = f"{path.rstrip('/')}/{item_name}"
 
                 if item_type == 'dir':
                     folders_set.add(item_path)
