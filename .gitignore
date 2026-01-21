@@ -63,3 +63,7 @@ stash/
 stash_download.log
 stash_failed.txt
 .download_progress.json
+
+# Папка для обработанных файлов из stash
+stash_markdown/
+stash_processing.log
