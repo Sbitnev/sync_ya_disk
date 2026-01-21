@@ -313,7 +313,8 @@ class StashDownloader:
                 with open(local_path, 'wb') as f:
                     # Отключаем индивидуальный прогресс-бар, чтобы не засорять вывод
                     # Общий прогресс-бар по размеру обновляется в реальном времени
-                    for chunk in response.iter_content(chunk_size=8192):
+                    # Используем больший chunk_size для более быстрой загрузки
+                    for chunk in response.iter_content(chunk_size=config.DOWNLOAD_CHUNK_SIZE):
                         f.write(chunk)
                         # Обновляем общий прогресс-бар в реальном времени
                         if self.size_pbar:
@@ -345,12 +346,14 @@ class StashDownloader:
 
         return False
 
-    def download_all(self, max_workers=5):
+    def download_all(self, max_workers=None):
         """
         Скачивает все файлы с диска
 
-        :param max_workers: Количество параллельных загрузок
+        :param max_workers: Количество параллельных загрузок (по умолчанию из config)
         """
+        if max_workers is None:
+            max_workers = config.STASH_DOWNLOAD_WORKERS
         logger.info("=" * 70)
         logger.info("ВЫГРУЗКА ВСЕХ ФАЙЛОВ С ЯНДЕКС.ДИСКА В STASH/")
         logger.info("=" * 70)
@@ -609,7 +612,7 @@ def main():
     # Создаем загрузчик и запускаем выгрузку
     try:
         downloader = StashDownloader(token_manager, output_dir="stash")
-        downloader.download_all(max_workers=5)
+        downloader.download_all()  # Использует STASH_DOWNLOAD_WORKERS из config
         return 0
     except KeyboardInterrupt:
         logger.warning("Выгрузка прервана пользователем")

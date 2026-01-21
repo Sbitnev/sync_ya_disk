@@ -875,7 +875,8 @@ class YandexDiskUserSyncer:
                         desc=file_info['name'][:30],
                         leave=False
                     ) as pbar:
-                        for chunk in response.iter_content(chunk_size=8192):
+                        # Используем оптимизированный chunk size для более быстрой загрузки
+                        for chunk in response.iter_content(chunk_size=config.DOWNLOAD_CHUNK_SIZE):
                             f.write(chunk)
                             pbar.update(len(chunk))
 
