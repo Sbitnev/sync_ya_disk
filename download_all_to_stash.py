@@ -346,22 +346,31 @@ class StashDownloader:
 
         return False
 
-    def download_all(self, max_workers=None):
+    def download_all(self, max_workers=None, remote_path=None):
         """
         Скачивает все файлы с диска
 
         :param max_workers: Количество параллельных загрузок (по умолчанию из config)
+        :param remote_path: Путь на диске для выгрузки (по умолчанию из config)
         """
         if max_workers is None:
             max_workers = config.STASH_DOWNLOAD_WORKERS
+
+        if remote_path is None:
+            remote_path = config.REMOTE_FOLDER_PATH
+
         logger.info("=" * 70)
-        logger.info("ВЫГРУЗКА ВСЕХ ФАЙЛОВ С ЯНДЕКС.ДИСКА В STASH/")
+        logger.info("ВЫГРУЗКА ФАЙЛОВ С ЯНДЕКС.ДИСКА В STASH/")
         logger.info("=" * 70)
+        logger.info(f"Пользователь: {config.USER_EMAIL} (ID: {config.USER_ID})")
+        logger.info(f"Папка на диске: {remote_path}")
         logger.info(f"Директория для скачивания: {self.output_dir.absolute()}")
+        logger.info(f"Параллельных потоков: {max_workers}")
 
         # Получаем список всех файлов
+        logger.info("=" * 70)
         logger.info("Получение списка файлов с диска...")
-        all_files = self.get_all_files_recursive("/")
+        all_files = self.get_all_files_recursive(remote_path)
 
         if not all_files:
             logger.warning("Файлы не найдены")
