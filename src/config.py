@@ -27,7 +27,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
 # Для выгрузки всего диска: "/"
-REMOTE_FOLDER_PATH = "/Клиенты"
+REMOTE_FOLDER_PATH = "/Клиенты/Л'этуаль/1. Архив версий/"
 
 # Базовая папка для всех данных (кроме логов)
 LOCALDATA_DIR = Path("localdata")
@@ -132,6 +132,9 @@ SKIP_FILE_PATTERNS = [
     r'\.drawio\.bkp$',  # Резервные копии Draw.io
     r'\.drawio\.dtmp$', # Временные Draw.io
     r'\.mpp$',          # Microsoft Project (пока не поддерживается)
+    r'\.epf$',          # Внешние обработки 1С (не поддерживаются)
+    r'\.mht$',          # MHTML веб-архивы (не поддерживаются)
+    r'\.mp3$',          # Аудио файлы (не требуют конвертации)
     r'^\.~',            # Скрытые временные файлы (.~lock)
     r'^\._',            # macOS временные файлы (._filename)
 ]
