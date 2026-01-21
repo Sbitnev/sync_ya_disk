@@ -62,3 +62,4 @@ temp/
 stash/
 stash_download.log
 stash_failed.txt
+.download_progress.json
