@@ -109,8 +109,17 @@ class StashProcessor:
         ext = file_path.suffix.lower()
 
         # Проверяем размер файла
-        if config.SKIP_LARGE_FILES and file_size > config.MAX_FILE_SIZE:
-            return True, f"Слишком большой файл ({format_size(file_size)})"
+        if config.SKIP_LARGE_FILES:
+            # Определяем максимальный размер для файла
+            max_size = config.MAX_FILE_SIZE
+
+            # Для табличных файлов используем минимум из двух значений
+            tabular_extensions = ['.csv', '.xlsx', '.xls', '.xlsm', '.xlsb', '.parquet']
+            if ext in tabular_extensions:
+                max_size = min(config.MAX_FILE_SIZE, config.MAX_TABULAR_FILE_SIZE)
+
+            if file_size > max_size:
+                return True, f"Слишком большой файл ({format_size(file_size)} > {format_size(max_size)})"
 
         # Проверяем видео
         if config.SKIP_VIDEO_FILES and ext in config.VIDEO_EXTENSIONS:
@@ -251,7 +260,14 @@ class StashProcessor:
             logger.info(f"  • Видео: {'пропускать' if config.SKIP_VIDEO_FILES else 'обрабатывать'}")
             logger.info(f"  • Изображения: {'пропускать' if config.SKIP_IMAGE_FILES else 'обрабатывать'}")
             logger.info(f"  • Parquet: {'пропускать' if config.SKIP_PARQUET_FILES else 'обрабатывать'}")
-            logger.info(f"  • Макс. размер: {format_size(config.MAX_FILE_SIZE) if config.SKIP_LARGE_FILES else 'без ограничений'}")
+            if config.SKIP_LARGE_FILES:
+                if config.MAX_FILE_SIZE != config.MAX_TABULAR_FILE_SIZE:
+                    tabular_limit = min(config.MAX_FILE_SIZE, config.MAX_TABULAR_FILE_SIZE)
+                    logger.info(f"  • Макс. размер: {format_size(config.MAX_FILE_SIZE)} (таблицы: {format_size(tabular_limit)})")
+                else:
+                    logger.info(f"  • Макс. размер: {format_size(config.MAX_FILE_SIZE)}")
+            else:
+                logger.info(f"  • Макс. размер: без ограничений")
 
 
 def main():

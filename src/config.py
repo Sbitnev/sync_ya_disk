@@ -96,7 +96,12 @@ PARQUET_EXTENSIONS = [
 
 # Максимальный размер файла для скачивания (в байтах)
 # Файлы больше этого размера будут пропущены (создан пустой файл)
-MAX_FILE_SIZE = 3 * 1024 * 1024  # 3 МБ
+MAX_FILE_SIZE = 1024 * 1024 * 1024  # 1 Гб
+
+# Максимальный размер для табличных файлов (CSV, Excel, Parquet)
+# При обработке табличных данных используется минимум из MAX_FILE_SIZE и MAX_TABULAR_FILE_SIZE
+# Это позволяет установить отдельный лимит для табличных данных
+MAX_TABULAR_FILE_SIZE = 3 * 1024 * 1024  # 3 МБ
 
 # Пропускать файлы больше MAX_FILE_SIZE
 SKIP_LARGE_FILES = True
@@ -314,9 +319,16 @@ def print_config_summary():
     print(f"  • Видео файлы: {'пропускать' if SKIP_VIDEO_FILES else 'скачивать'}")
     print(f"  • Файлы изображений: {'пропускать' if SKIP_IMAGE_FILES else 'скачивать'}")
     print(f"  • Parquet файлы: {'пропускать' if SKIP_PARQUET_FILES else 'скачивать'}")
-    print(
-        f"  • Большие файлы (>{format_size(MAX_FILE_SIZE)}): {'пропускать' if SKIP_LARGE_FILES else 'скачивать'}"
-    )
+    if SKIP_LARGE_FILES:
+        # Показываем оба лимита если они различаются
+        if MAX_FILE_SIZE != MAX_TABULAR_FILE_SIZE:
+            tabular_limit = min(MAX_FILE_SIZE, MAX_TABULAR_FILE_SIZE)
+            print(f"  • Большие файлы: пропускать (>{format_size(MAX_FILE_SIZE)})")
+            print(f"  • Табличные файлы: пропускать (>{format_size(tabular_limit)})")
+        else:
+            print(f"  • Большие файлы (>{format_size(MAX_FILE_SIZE)}): пропускать")
+    else:
+        print(f"  • Большие файлы: скачивать")
     print(
         f"  • Общий лимит: {format_size(MAX_TOTAL_SIZE) if ENABLE_TOTAL_SIZE_LIMIT else 'нет'}"
     )

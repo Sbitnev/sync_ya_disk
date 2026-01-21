@@ -775,12 +775,30 @@ class YandexDiskUserSyncer:
         file_ext = Path(filename).suffix.lower()
         return file_ext in config.PARQUET_EXTENSIONS
 
-    def is_large_file(self, size):
-        """Проверяет, является ли файл слишком большим"""
+    def is_large_file(self, size, filename=None):
+        """
+        Проверяет, является ли файл слишком большим
+
+        :param size: Размер файла в байтах
+        :param filename: Имя файла (опционально, для определения табличных файлов)
+        :return: True если файл превышает допустимый размер
+        """
         if not config.SKIP_LARGE_FILES:
             return False
 
-        return size > config.MAX_FILE_SIZE
+        # Определяем максимальный размер
+        max_size = config.MAX_FILE_SIZE
+
+        # Для табличных файлов используем минимум из двух значений
+        if filename:
+            file_ext = Path(filename).suffix.lower()
+            tabular_extensions = ['.csv', '.xlsx', '.xls', '.xlsm', '.xlsb', '.parquet']
+
+            if file_ext in tabular_extensions:
+                # Для табличных данных берем минимум из общего лимита и лимита для таблиц
+                max_size = min(config.MAX_FILE_SIZE, config.MAX_TABULAR_FILE_SIZE)
+
+        return size > max_size
 
     def should_create_empty_file(self, file_info):
         """
@@ -815,8 +833,8 @@ class YandexDiskUserSyncer:
         if self.is_parquet_file(file_info['name']):
             return True, "parquet"
 
-        # Проверяем размер файла
-        if self.is_large_file(file_info['size']):
+        # Проверяем размер файла (передаем имя для определения типа)
+        if self.is_large_file(file_info['size'], file_info['name']):
             return True, "large"
 
         return False, None
@@ -860,14 +878,23 @@ class YandexDiskUserSyncer:
         should_skip, reason = self.should_create_empty_file(file_info)
 
         if should_skip:
-            reason_text = {
-                'temporary': 'временный файл',
-                'video': 'видео',
-                'image': 'изображение',
-                'parquet': 'Parquet файл',
-                'large': f'большой файл (>{format_size(config.MAX_FILE_SIZE)})',
-                'total_limit': f'достигнут лимит {format_size(config.MAX_TOTAL_SIZE)}'
-            }.get(reason, 'неизвестная причина')
+            # Определяем лимит для сообщения о большом файле
+            if reason == 'large':
+                file_ext = Path(file_info['name']).suffix.lower()
+                tabular_extensions = ['.csv', '.xlsx', '.xls', '.xlsm', '.xlsb', '.parquet']
+                if file_ext in tabular_extensions:
+                    effective_limit = min(config.MAX_FILE_SIZE, config.MAX_TABULAR_FILE_SIZE)
+                else:
+                    effective_limit = config.MAX_FILE_SIZE
+                reason_text = f'большой файл (>{format_size(effective_limit)})'
+            else:
+                reason_text = {
+                    'temporary': 'временный файл',
+                    'video': 'видео',
+                    'image': 'изображение',
+                    'parquet': 'Parquet файл',
+                    'total_limit': f'достигнут лимит {format_size(config.MAX_TOTAL_SIZE)}'
+                }.get(reason, 'неизвестная причина')
 
             logger.info(f"Пропущено ({reason_text}): {file_info['path']} ({format_size(file_info['size'])})")
             return 'skipped'
@@ -1531,7 +1558,12 @@ class YandexDiskUserSyncer:
         logger.info(f"Видео (пропущено): {video_count}")
         logger.info(f"Изображения (пропущено): {image_count}")
         logger.info(f"Parquet файлы (пропущено): {parquet_count}")
-        logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (пропущено): {large_file_count}")
+        # Показываем оба лимита если они различаются
+        if config.MAX_FILE_SIZE != config.MAX_TABULAR_FILE_SIZE:
+            tabular_limit = min(config.MAX_FILE_SIZE, config.MAX_TABULAR_FILE_SIZE)
+            logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (таблицы >{format_size(tabular_limit)}) (пропущено): {large_file_count}")
+        else:
+            logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (пропущено): {large_file_count}")
         logger.info(f"Достигнут лимит {format_size(config.MAX_TOTAL_SIZE)} (пропущено): {limit_reached_count}")
         logger.info(f"Пропущено (без изменений): {skipped_count}")
         if converted_count > 0:

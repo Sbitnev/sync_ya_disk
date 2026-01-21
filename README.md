@@ -328,6 +328,7 @@ python run_process_stash.py
   - `SKIP_IMAGE_FILES` - пропускать изображения
   - `SKIP_PARQUET_FILES` - пропускать parquet
   - `MAX_FILE_SIZE` - максимальный размер файла
+  - `MAX_TABULAR_FILE_SIZE` - максимальный размер табличных файлов (CSV, Excel, Parquet)
   - `ENABLE_MARKDOWN_CONVERSION` - включена ли конвертация
   - `CONVERT_*_FILES` - какие типы файлов конвертировать
 - Пропускает уже обработанные файлы (проверка по времени модификации)
@@ -390,6 +391,8 @@ DOWNLOAD_DIR = LOCALDATA_DIR / "downloaded_files"
 
 # Лимиты
 MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1 ГБ
+MAX_TABULAR_FILE_SIZE = 5 * 1024 * 1024  # 5 МБ для табличных файлов (CSV, Excel, Parquet)
+# Для табличных файлов используется минимум из MAX_FILE_SIZE и MAX_TABULAR_FILE_SIZE
 MAX_TOTAL_SIZE = 10 * 1024 * 1024 * 1024  # 10 ГБ
 ```
 
