@@ -27,7 +27,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
 # Для выгрузки всего диска: "/"
-REMOTE_FOLDER_PATH = "/Клиенты/SOKOLOV"
+REMOTE_FOLDER_PATH = "/Клиенты"
 
 # Базовая папка для всех данных (кроме логов)
 LOCALDATA_DIR = Path("localdata")
