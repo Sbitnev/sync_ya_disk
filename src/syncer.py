@@ -1365,25 +1365,75 @@ class YandexDiskUserSyncer:
             folder_full_path.mkdir(parents=True, exist_ok=True)
         logger.success(f"Создано папок: {len(folders_set)}")
 
-        # Анализ файлов для загрузки
-        logger.info("Анализ файлов для загрузки...")
-        files_to_download = []
-        total_download_size = 0
+        # Анализ и классификация файлов
+        logger.info("Анализ и классификация файлов...")
+        files_to_download = []  # Файлы которые нужно загрузить
+        files_to_skip = {       # Файлы которые будут пропущены по фильтрам
+            'temporary': [],
+            'video': [],
+            'image': [],
+            'parquet': [],
+            'large': [],
+            'total_limit': []
+        }
+        files_already_synced = []  # Файлы уже синхронизированные
+        total_download_size = 0    # Реальный размер для загрузки
+        total_skip_size = 0        # Размер пропускаемых файлов
 
         for file_info in all_files:
-            if self.should_download(file_info):
-                files_to_download.append(file_info)
-                # Учитываем размер только для файлов, которые будем скачивать
-                should_skip, _ = self.should_create_empty_file(file_info)
-                if not should_skip:
-                    total_download_size += file_info['size']
+            # Проверяем нужно ли скачивать файл (изменился или новый)
+            if not self.should_download(file_info):
+                files_already_synced.append(file_info)
+                continue
 
+            # Проверяем нужно ли пропустить файл по фильтрам
+            should_skip, skip_reason = self.should_create_empty_file(file_info)
+
+            if should_skip:
+                # Файл будет пропущен
+                files_to_skip[skip_reason].append(file_info)
+                total_skip_size += file_info['size']
+            else:
+                # Файл будет загружен
+                files_to_download.append(file_info)
+                total_download_size += file_info['size']
+
+        # Красивый вывод статистики
         logger.info("=" * 70)
-        logger.info("Статистика загрузки:")
-        logger.info(f"   Файлов к обработке: {len(files_to_download)}")
-        logger.info(f"   Ожидаемый объем загрузки: {format_size(total_download_size)}")
-        logger.info(f"   Файлов уже скачано (пропущено): {len(all_files) - len(files_to_download)}")
-        logger.info(f"   Потоков для загрузки: {config.MAX_WORKERS}")
+        logger.info("СТАТИСТИКА ФАЙЛОВ")
+        logger.info("=" * 70)
+        logger.info(f"Всего файлов на диске: {len(all_files)}")
+        logger.info(f"Уже синхронизировано: {len(files_already_synced)}")
+        logger.info("")
+
+        # Файлы для загрузки
+        logger.info(f"📥 ФАЙЛОВ ДЛЯ ЗАГРУЗКИ: {len(files_to_download)}")
+        if files_to_download:
+            logger.info(f"   Объем для загрузки: {format_size(total_download_size)}")
+
+        # Файлы для пропуска
+        total_skipped = sum(len(files) for files in files_to_skip.values())
+        if total_skipped > 0:
+            logger.info("")
+            logger.info(f"⏭️  ФАЙЛОВ БУДЕТ ПРОПУЩЕНО: {total_skipped}")
+            logger.info(f"   Объем пропускаемых файлов: {format_size(total_skip_size)}")
+
+            skip_labels = {
+                'temporary': 'Временные файлы',
+                'video': 'Видео файлы',
+                'image': 'Изображения',
+                'parquet': 'Parquet файлы',
+                'large': 'Большие файлы',
+                'total_limit': 'Достигнут общий лимит'
+            }
+
+            for reason, files in files_to_skip.items():
+                if files:
+                    reason_size = sum(f['size'] for f in files)
+                    logger.info(f"   • {skip_labels[reason]}: {len(files)} ({format_size(reason_size)})")
+
+        logger.info("")
+        logger.info(f"⚙️  Потоков для загрузки: {config.MAX_WORKERS}")
         logger.info("=" * 70)
 
         if not files_to_download:
@@ -1393,44 +1443,26 @@ class YandexDiskUserSyncer:
         # Статистика для финального отчета
         downloaded_count = 0
         updated_count = 0
-        skipped_count = len(all_files) - len(files_to_download)
-        temporary_count = 0
-        video_count = 0
-        image_count = 0
-        parquet_count = 0
-        large_file_count = 0
-        limit_reached_count = 0
         converted_count = 0
         skipped_conversion_count = 0
         error_count = 0
         failed_files = []
+        downloaded_bytes = 0  # Счетчик скачанных байт для прогресс-бара
 
         def process_file(file_info):
-            nonlocal downloaded_count, updated_count, temporary_count, video_count, image_count, parquet_count, large_file_count, limit_reached_count, converted_count, skipped_conversion_count, error_count
+            nonlocal downloaded_count, updated_count, converted_count, skipped_conversion_count, error_count, downloaded_bytes
 
             existing_metadata = self.db.get_file_metadata(file_info['path'])
             is_new = existing_metadata is None
-            should_skip, reason = self.should_create_empty_file(file_info)
 
+            # Все файлы в files_to_download уже прошли фильтрацию
+            # Просто загружаем файл
             download_result = self.download_file(file_info)
 
-            # Обрабатываем пропущенные файлы
-            if download_result == 'skipped':
-                # Файл пропущен - НЕ сохраняем в БД для возможности повторной загрузки
-                with self.metadata_lock:
-                    if reason == 'temporary':
-                        temporary_count += 1
-                    elif reason == 'video':
-                        video_count += 1
-                    elif reason == 'image':
-                        image_count += 1
-                    elif reason == 'parquet':
-                        parquet_count += 1
-                    elif reason == 'large':
-                        large_file_count += 1
-                    elif reason == 'total_limit':
-                        limit_reached_count += 1
-                return (True, file_info['path'])
+            # Если файл скачан, обновляем счетчик размера
+            if download_result and download_result != 'skipped':
+                with self.download_lock:
+                    downloaded_bytes += file_info['size']
 
             # Обрабатываем успешно скачанные файлы
             if download_result:
@@ -1533,12 +1565,24 @@ class YandexDiskUserSyncer:
         with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
             futures = {executor.submit(process_file, file_info): file_info for file_info in files_to_download}
 
-            with tqdm(total=len(files_to_download), desc="Общий прогресс", unit="файл") as pbar:
+            # Прогресс-бар с информацией о размере
+            with tqdm(
+                total=len(files_to_download),
+                desc="📥 Загрузка",
+                unit="файл",
+                bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}'
+            ) as pbar:
                 for future in as_completed(futures):
                     success, file_path = future.result()
                     if not success:
                         failed_files.append(file_path)
+
+                    # Обновляем прогресс-бар с информацией о размере
                     pbar.update(1)
+                    pbar.set_postfix_str(
+                        f"💾 {format_size(downloaded_bytes)} / {format_size(total_download_size)}",
+                        refresh=True
+                    )
 
         # Сохраняем список неудачных файлов
         if failed_files:
@@ -1550,36 +1594,63 @@ class YandexDiskUserSyncer:
 
         # Итоговая статистика
         logger.info("=" * 70)
-        logger.success("Синхронизация завершена!")
+        logger.success("✅ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА!")
         logger.info("=" * 70)
-        logger.info(f"Новых файлов скачано: {downloaded_count}")
-        logger.info(f"Обновленных файлов: {updated_count}")
-        logger.info(f"Временные файлы (пропущено): {temporary_count}")
-        logger.info(f"Видео (пропущено): {video_count}")
-        logger.info(f"Изображения (пропущено): {image_count}")
-        logger.info(f"Parquet файлы (пропущено): {parquet_count}")
-        # Показываем оба лимита если они различаются
-        if config.MAX_FILE_SIZE != config.MAX_TABULAR_FILE_SIZE:
-            tabular_limit = min(config.MAX_FILE_SIZE, config.MAX_TABULAR_FILE_SIZE)
-            logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (таблицы >{format_size(tabular_limit)}) (пропущено): {large_file_count}")
-        else:
-            logger.info(f"Большие файлы >{format_size(config.MAX_FILE_SIZE)} (пропущено): {large_file_count}")
-        logger.info(f"Достигнут лимит {format_size(config.MAX_TOTAL_SIZE)} (пропущено): {limit_reached_count}")
-        logger.info(f"Пропущено (без изменений): {skipped_count}")
-        if converted_count > 0:
-            logger.info(f"Конвертировано в Markdown: {converted_count}")
-        if skipped_conversion_count > 0:
-            logger.info(f"Конвертация пропущена (MD существует): {skipped_conversion_count}")
-        if deleted_local > 0:
-            logger.warning(f"Удалено (отсутствуют на диске): {deleted_local}")
-        if deleted_folders > 0:
-            logger.warning(f"Удалено пустых папок: {deleted_folders}")
-        if error_count > 0:
-            logger.error(f"Ошибок при обработке: {error_count}")
-        if failed_files:
-            logger.warning(f"Не удалось скачать: {len(failed_files)}")
-        logger.info(f"Всего файлов: {len(all_files)}")
-        logger.info(f"Скачано данных: {format_size(self.total_downloaded_bytes)}")
+        logger.info("")
+        logger.info("📊 ОБРАБОТАНО ФАЙЛОВ:")
+        logger.info(f"   • Новых файлов скачано: {downloaded_count}")
+        logger.info(f"   • Обновленных файлов: {updated_count}")
+        logger.info(f"   • Уже синхронизировано (без изменений): {len(files_already_synced)}")
+        logger.info(f"   • Объем загруженных данных: {format_size(downloaded_bytes)}")
+
+        # Статистика пропущенных файлов
+        if total_skipped > 0:
+            logger.info("")
+            logger.info("⏭️  ПРОПУЩЕНО ФАЙЛОВ:")
+            skip_labels = {
+                'temporary': 'Временные файлы',
+                'video': 'Видео файлы',
+                'image': 'Изображения',
+                'parquet': 'Parquet файлы',
+                'large': 'Большие файлы',
+                'total_limit': 'Достигнут общий лимит'
+            }
+            for reason, files in files_to_skip.items():
+                if files:
+                    reason_size = sum(f['size'] for f in files)
+                    logger.info(f"   • {skip_labels[reason]}: {len(files)} ({format_size(reason_size)})")
+        # Статистика конвертации
+        if converted_count > 0 or skipped_conversion_count > 0:
+            logger.info("")
+            logger.info("📝 КОНВЕРТАЦИЯ В MARKDOWN:")
+            if converted_count > 0:
+                logger.info(f"   • Конвертировано файлов: {converted_count}")
+            if skipped_conversion_count > 0:
+                logger.info(f"   • Пропущено (MD существует): {skipped_conversion_count}")
+
+        # Статистика очистки
+        if deleted_local > 0 or deleted_folders > 0:
+            logger.info("")
+            logger.info("🗑️  ОЧИСТКА:")
+            if deleted_local > 0:
+                logger.info(f"   • Удалено файлов (отсутствуют на диске): {deleted_local}")
+            if deleted_folders > 0:
+                logger.info(f"   • Удалено пустых папок: {deleted_folders}")
+
+        # Ошибки
+        if error_count > 0 or failed_files:
+            logger.info("")
+            logger.error("❌ ОШИБКИ:")
+            if error_count > 0:
+                logger.error(f"   • Ошибок при обработке: {error_count}")
+            if failed_files:
+                logger.error(f"   • Не удалось скачать: {len(failed_files)}")
+
+        logger.info("")
+        logger.info("📈 ИТОГО:")
+        logger.info(f"   • Всего файлов на диске: {len(all_files)}")
+        logger.info(f"   • Обработано в этой сессии: {len(files_to_download)}")
+        logger.info(f"   • Реально загружено данных: {format_size(downloaded_bytes)}")
 
         # Статистика из БД
         db_stats = self.db.get_statistics()
