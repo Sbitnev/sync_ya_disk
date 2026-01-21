@@ -27,7 +27,7 @@ USER_EMAIL = os.getenv("USER_EMAIL", "tn@imprice.ai")
 # Для тестов: "/Клиенты/SOKOLOV"
 # Для продакшена: "/Клиенты"
 # Для выгрузки всего диска: "/"
-REMOTE_FOLDER_PATH = "/Клиенты"
+REMOTE_FOLDER_PATH = "/Клиенты/SOKOLOV"
 
 # Базовая папка для всех данных (кроме логов)
 LOCALDATA_DIR = Path("localdata")
@@ -96,7 +96,7 @@ PARQUET_EXTENSIONS = [
 
 # Максимальный размер файла для скачивания (в байтах)
 # Файлы больше этого размера будут пропущены (создан пустой файл)
-MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024  # 2 ГБ
+MAX_FILE_SIZE = 3 * 1024 * 1024  # 3 МБ
 
 # Пропускать файлы больше MAX_FILE_SIZE
 SKIP_LARGE_FILES = True

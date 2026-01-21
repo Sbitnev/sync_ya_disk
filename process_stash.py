@@ -101,6 +101,10 @@ class StashProcessor:
         if not self.apply_filters:
             return False, ""
 
+        # Ensure file_path is a Path object
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+
         file_size = file_path.stat().st_size
         ext = file_path.suffix.lower()
 
@@ -158,7 +162,7 @@ class StashProcessor:
         # Ищем подходящий конвертер
         converter = None
         for conv in self.converters:
-            if conv.can_convert(str(file_path)):
+            if conv.can_convert(file_path):
                 converter = conv
                 break
 
@@ -172,7 +176,7 @@ class StashProcessor:
             # Создаем директорию для выходного файла
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            success = converter.convert(str(file_path), str(output_path))
+            success = converter.convert(file_path, output_path)
 
             if success:
                 logger.success(f"Обработан: {file_path.name} → {output_path.name}")
