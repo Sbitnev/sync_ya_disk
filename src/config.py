@@ -131,6 +131,8 @@ SKIP_FILE_PATTERNS = [
     r'\.drawio$',       # Диаграммы Draw.io
     r'\.drawio\.bkp$',  # Резервные копии Draw.io
     r'\.drawio\.dtmp$', # Временные Draw.io
+    r'^\.\$',           # Временные файлы, начинающиеся с .$ (.$filename)
+    r'\.dtmp$',         # Все .dtmp файлы (временные)
     r'\.mpp$',          # Microsoft Project (пока не поддерживается)
     r'\.epf$',          # Внешние обработки 1С (не поддерживаются)
     r'\.mht$',          # MHTML веб-архивы (не поддерживаются)

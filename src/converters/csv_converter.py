@@ -2,6 +2,7 @@
 Конвертер CSV файлов в Markdown
 """
 from pathlib import Path
+from io import StringIO
 import pandas as pd
 import chardet
 from loguru import logger
@@ -50,6 +51,79 @@ class CSVConverter(FileConverter):
         except Exception as e:
             logger.debug(f"Ошибка определения кодировки: {e}, используем utf-8")
             return 'utf-8'
+
+    def _read_csv_manual_utf16(self, input_path: Path) -> pd.DataFrame:
+        """
+        Читает CSV файл с ручным определением UTF-16 кодировки (с и без BOM)
+
+        Pandas не может правильно прочитать UTF-16 файлы без BOM,
+        поэтому мы читаем байты вручную и декодируем их.
+
+        :param input_path: Путь к файлу
+        :return: DataFrame или None если не удалось
+        """
+        try:
+            # Читаем файл как байты
+            with open(input_path, 'rb') as f:
+                raw_data = f.read()
+
+            # Проверяем первые байты для определения кодировки
+            if len(raw_data) < 2:
+                return None
+
+            # Пробуем разные варианты UTF-16
+            encodings_to_try = []
+
+            # Проверяем BOM (Byte Order Mark)
+            if raw_data[:2] == b'\xff\xfe':
+                # UTF-16 LE с BOM
+                encodings_to_try.append(('utf-16-le', True))
+                logger.debug("Обнаружен BOM для UTF-16 LE")
+            elif raw_data[:2] == b'\xfe\xff':
+                # UTF-16 BE с BOM
+                encodings_to_try.append(('utf-16-be', True))
+                logger.debug("Обнаружен BOM для UTF-16 BE")
+            else:
+                # Нет BOM - пробуем оба варианта
+                # Для Windows чаще всего UTF-16 LE
+                encodings_to_try.append(('utf-16-le', False))
+                encodings_to_try.append(('utf-16-be', False))
+                logger.debug("BOM не обнаружен, пробуем UTF-16 без BOM")
+
+            # Пробуем каждую кодировку
+            for encoding, has_bom in encodings_to_try:
+                try:
+                    # Декодируем байты в строку
+                    if has_bom:
+                        # Пропускаем BOM (первые 2 байта)
+                        text = raw_data[2:].decode(encoding)
+                    else:
+                        text = raw_data.decode(encoding)
+
+                    # Проверяем, что декодирование прошло успешно
+                    # (в UTF-16 должны быть читаемые символы)
+                    if '\x00' in text[:100]:  # Много null-байтов - неправильная кодировка
+                        continue
+
+                    # Создаем StringIO для pandas
+                    text_io = StringIO(text)
+
+                    # Читаем CSV из строки
+                    df = pd.read_csv(text_io)
+
+                    logger.info(f"CSV успешно прочитан с кодировкой {encoding} (BOM: {has_bom})")
+                    return df
+
+                except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+                    logger.debug(f"Не удалось прочитать с {encoding} (BOM: {has_bom}): {e}")
+                    continue
+
+            # Не удалось ни с одним вариантом
+            return None
+
+        except Exception as e:
+            logger.debug(f"Ошибка при ручном чтении UTF-16: {e}")
+            return None
 
     def convert(self, input_path: Path, output_path: Path) -> bool:
         """
@@ -106,6 +180,14 @@ class CSVConverter(FileConverter):
                         break
                     except:
                         continue
+
+            # Третий проход: пробуем ручное чтение UTF-16 без BOM
+            if df is None:
+                logger.debug(f"Пробуем ручное чтение UTF-16 без BOM: {input_path.name}")
+                df = self._read_csv_manual_utf16(input_path)
+                if df is not None:
+                    used_encoding = 'utf-16 (manual)'
+                    logger.info(f"CSV прочитан через ручное определение UTF-16")
 
             if df is None:
                 logger.error(f"Не удалось прочитать CSV с доступными кодировками: {input_path.name}")
