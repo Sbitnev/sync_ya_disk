@@ -100,11 +100,6 @@ class CSVConverter(FileConverter):
                     else:
                         text = raw_data.decode(encoding)
 
-                    # Проверяем, что декодирование прошло успешно
-                    # (в UTF-16 должны быть читаемые символы)
-                    if '\x00' in text[:100]:  # Много null-байтов - неправильная кодировка
-                        continue
-
                     # Создаем StringIO для pandas
                     text_io = StringIO(text)
 
@@ -139,10 +134,10 @@ class CSVConverter(FileConverter):
 
             # Пробуем разные кодировки, начиная с определенной
             # Добавлены UTF-16 варианты без BOM (Little Endian и Big Endian)
+            # ВАЖНО: не используем 'utf-16', потому что pandas требует BOM для него
             encodings = [
                 detected_encoding,
                 'utf-8',
-                'utf-16',          # UTF-16 с BOM
                 'utf-16-le',       # UTF-16 Little Endian без BOM (для Windows)
                 'utf-16-be',       # UTF-16 Big Endian без BOM
                 'cp1251',          # Windows Cyrillic
@@ -164,7 +159,10 @@ class CSVConverter(FileConverter):
                     used_encoding = encoding
                     logger.debug(f"CSV прочитан с кодировкой {encoding}")
                     break
-                except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError):
+                except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError, Exception) as e:
+                    # Перехватываем также "UTF-16 stream does not start with BOM"
+                    if "UTF-16" in str(e) and "BOM" in str(e):
+                        logger.debug(f"Пропускаем {encoding} из-за проблемы с BOM")
                     continue
 
             # Второй проход: если не получилось, пробуем с errors='ignore'
@@ -178,7 +176,10 @@ class CSVConverter(FileConverter):
                         used_fallback = True
                         logger.warning(f"CSV прочитан с кодировкой {encoding} и игнорированием ошибок")
                         break
-                    except:
+                    except Exception as e:
+                        # Перехватываем также "UTF-16 stream does not start with BOM"
+                        if "UTF-16" in str(e) and "BOM" in str(e):
+                            logger.debug(f"Пропускаем {encoding} из-за проблемы с BOM")
                         continue
 
             # Третий проход: пробуем ручное чтение UTF-16 без BOM

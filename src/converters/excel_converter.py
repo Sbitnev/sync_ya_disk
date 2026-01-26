@@ -93,11 +93,47 @@ class ExcelConverter(FileConverter):
                 engine = 'pyxlsb'
 
             # Получаем список всех листов
+            excel_file = None
+            last_error = None
+
+            # Попытка 1: Стандартное открытие
             try:
-                with pd.ExcelFile(input_path, engine=engine) as excel_file:
-                    sheet_names = excel_file.sheet_names
+                excel_file = pd.ExcelFile(input_path, engine=engine)
+                sheet_names = excel_file.sheet_names
             except Exception as e:
-                logger.error(f"Не удалось открыть Excel файл {input_path.name}: {e}")
+                last_error = e
+                logger.debug(f"Попытка 1 не удалась ({engine}): {e}")
+
+                # Попытка 2: Для openpyxl пробуем с data_only=True (игнорирует формулы)
+                if engine == 'openpyxl':
+                    try:
+                        import openpyxl
+                        wb = openpyxl.load_workbook(input_path, data_only=True, read_only=False)
+                        sheet_names = wb.sheetnames
+                        wb.close()
+                        # Создаем ExcelFile после успешной проверки
+                        excel_file = pd.ExcelFile(input_path, engine=engine)
+                        logger.info(f"Excel файл открыт с data_only=True: {input_path.name}")
+                    except Exception as e2:
+                        last_error = e2
+                        logger.debug(f"Попытка 2 не удалась (data_only=True): {e2}")
+
+                        # Попытка 3: read_only=True
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(input_path, read_only=True)
+                            sheet_names = wb.sheetnames
+                            wb.close()
+                            excel_file = pd.ExcelFile(input_path, engine=engine)
+                            logger.info(f"Excel файл открыт с read_only=True: {input_path.name}")
+                        except Exception as e3:
+                            last_error = e3
+                            logger.debug(f"Попытка 3 не удалась (read_only=True): {e3}")
+                            excel_file = None
+
+            if excel_file is None:
+                logger.error(f"Не удалось открыть Excel файл {input_path.name}: {last_error}")
+                logger.error(f"Файл поврежден и не может быть восстановлен автоматически")
                 return False
 
             # Если один лист - сохраняем как есть
@@ -159,11 +195,47 @@ class ExcelConverter(FileConverter):
                 engine = 'pyxlsb'
 
             # Получаем список всех листов
+            excel_file = None
+            last_error = None
+
+            # Попытка 1: Стандартное открытие
             try:
-                with pd.ExcelFile(input_path, engine=engine) as excel_file:
-                    sheet_names = excel_file.sheet_names
+                excel_file = pd.ExcelFile(input_path, engine=engine)
+                sheet_names = excel_file.sheet_names
             except Exception as e:
-                logger.error(f"Не удалось открыть Excel файл {input_path.name}: {e}")
+                last_error = e
+                logger.debug(f"Попытка 1 не удалась ({engine}): {e}")
+
+                # Попытка 2: Для openpyxl пробуем с data_only=True (игнорирует формулы)
+                if engine == 'openpyxl':
+                    try:
+                        import openpyxl
+                        wb = openpyxl.load_workbook(input_path, data_only=True, read_only=False)
+                        sheet_names = wb.sheetnames
+                        wb.close()
+                        # Создаем ExcelFile после успешной проверки
+                        excel_file = pd.ExcelFile(input_path, engine=engine)
+                        logger.info(f"Excel файл открыт с data_only=True: {input_path.name}")
+                    except Exception as e2:
+                        last_error = e2
+                        logger.debug(f"Попытка 2 не удалась (data_only=True): {e2}")
+
+                        # Попытка 3: read_only=True
+                        try:
+                            import openpyxl
+                            wb = openpyxl.load_workbook(input_path, read_only=True)
+                            sheet_names = wb.sheetnames
+                            wb.close()
+                            excel_file = pd.ExcelFile(input_path, engine=engine)
+                            logger.info(f"Excel файл открыт с read_only=True: {input_path.name}")
+                        except Exception as e3:
+                            last_error = e3
+                            logger.debug(f"Попытка 3 не удалась (read_only=True): {e3}")
+                            excel_file = None
+
+            if excel_file is None:
+                logger.error(f"Не удалось открыть Excel файл {input_path.name}: {last_error}")
+                logger.error(f"Файл поврежден и не может быть восстановлен автоматически")
                 return False
 
             # Ограничиваем количество листов
