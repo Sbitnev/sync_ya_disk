@@ -64,19 +64,48 @@ class CSVConverter(FileConverter):
             detected_encoding = self._detect_encoding(input_path)
 
             # Пробуем разные кодировки, начиная с определенной
-            encodings = [detected_encoding, 'utf-8', 'cp1251', 'latin-1', 'utf-16']
+            # Добавлены UTF-16 варианты без BOM (Little Endian и Big Endian)
+            encodings = [
+                detected_encoding,
+                'utf-8',
+                'utf-16',          # UTF-16 с BOM
+                'utf-16-le',       # UTF-16 Little Endian без BOM (для Windows)
+                'utf-16-be',       # UTF-16 Big Endian без BOM
+                'cp1251',          # Windows Cyrillic
+                'latin-1',         # ISO-8859-1
+                'cp1252',          # Windows Latin
+                'iso-8859-1'       # Latin-1
+            ]
             # Удаляем дубликаты, сохраняя порядок
             encodings = list(dict.fromkeys(encodings))
 
             df = None
+            used_encoding = None
+            used_fallback = False
 
+            # Первый проход: пробуем прочитать без errors='ignore'
             for encoding in encodings:
                 try:
                     df = pd.read_csv(input_path, encoding=encoding)
+                    used_encoding = encoding
                     logger.debug(f"CSV прочитан с кодировкой {encoding}")
                     break
-                except (UnicodeDecodeError, pd.errors.ParserError):
+                except (UnicodeDecodeError, pd.errors.ParserError, pd.errors.EmptyDataError):
                     continue
+
+            # Второй проход: если не получилось, пробуем с errors='ignore'
+            if df is None:
+                logger.debug(f"Пробуем прочитать CSV с errors='ignore': {input_path.name}")
+                for encoding in encodings:
+                    try:
+                        # Используем on_bad_lines='skip' для pandas >= 1.3
+                        df = pd.read_csv(input_path, encoding=encoding, encoding_errors='ignore', on_bad_lines='skip')
+                        used_encoding = encoding
+                        used_fallback = True
+                        logger.warning(f"CSV прочитан с кодировкой {encoding} и игнорированием ошибок")
+                        break
+                    except:
+                        continue
 
             if df is None:
                 logger.error(f"Не удалось прочитать CSV с доступными кодировками: {input_path.name}")

@@ -510,7 +510,15 @@ class YandexDiskUserSyncer:
                     error_msg = str(e)
 
                 # Сохраняем короткое описание ошибки
-                if status_code == 403:
+                if status_code == 400:
+                    self.last_error_message = "Некорректный запрос (400 Bad Request)"
+                    # Для HTTP 400 логируем URL с параметрами для диагностики
+                    logger.error(f"HTTP ошибка {status_code}{context}: {error_msg}")
+                    if 'params' in kwargs and 'path' in kwargs['params']:
+                        problematic_path = kwargs['params']['path']
+                        logger.debug(f"Проблемный путь: {problematic_path}")
+                        logger.debug(f"Полный URL запроса: {url}")
+                elif status_code == 403:
                     self.last_error_message = "Нет доступа (403 Forbidden)"
                 elif status_code == 404:
                     self.last_error_message = "Не найдена (404 Not Found)"
@@ -521,7 +529,8 @@ class YandexDiskUserSyncer:
                 else:
                     self.last_error_message = f"HTTP ошибка {status_code}"
 
-                logger.error(f"HTTP ошибка {status_code}{context}: {error_msg}")
+                if status_code != 400:  # Для HTTP 400 логирование уже выше
+                    logger.error(f"HTTP ошибка {status_code}{context}: {error_msg}")
                 return None
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries - 1:
@@ -1137,6 +1146,10 @@ class YandexDiskUserSyncer:
             data = response.json()
             return data.get('href')
         else:
+            # Если не удалось получить ссылку, логируем проблемный путь
+            if self.last_error_message and "400" in self.last_error_message:
+                logger.error(f"HTTP 400 для файла с возможными проблемными символами: {path}")
+                logger.debug(f"Проблемные символы в пути: двоеточие ':' может вызывать проблемы с API")
             return None
 
     def should_download(self, file_info):
