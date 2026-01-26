@@ -283,10 +283,17 @@ class WordConverter(FileConverter):
                 docx_file = temp_dir_path / f"{input_path.stem}.docx"
 
                 if not docx_file.exists():
-                    # Выводим список файлов в temp директории для диагностики
+                    # Детальная диагностика
                     temp_files = list(temp_dir_path.glob('*'))
                     logger.error(f"LibreOffice не создал .docx файл: {docx_file}")
                     logger.error(f"Файлы в temp директории: {[f.name for f in temp_files]}")
+
+                    if result.stdout:
+                        logger.error(f"LibreOffice stdout: {result.stdout}")
+                    if result.stderr:
+                        logger.error(f"LibreOffice stderr: {result.stderr}")
+
+                    logger.info(f"Для диагностики запустите: python check_libreoffice.py")
                     return False
 
                 # Шаг 2: Конвертируем .docx в markdown используя существующий метод

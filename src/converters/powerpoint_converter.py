@@ -233,6 +233,17 @@ class PowerPointConverter(FileConverter):
                         logger.debug(f"LibreOffice создал файл: {pptx_file.name}")
                     else:
                         logger.error(f"LibreOffice не создал .pptx файл: {pptx_file}")
+
+                        # Детальная диагностика
+                        all_files = list(temp_dir_path.iterdir())
+                        logger.error(f"Файлы в temp директории: {[f.name for f in all_files]}")
+
+                        if result.stdout:
+                            logger.error(f"LibreOffice stdout: {result.stdout}")
+                        if result.stderr:
+                            logger.error(f"LibreOffice stderr: {result.stderr}")
+
+                        logger.info(f"Для диагностики запустите: python check_libreoffice.py")
                         return False
 
                 # Шаг 2: Конвертируем полученный .pptx в markdown через python-pptx
